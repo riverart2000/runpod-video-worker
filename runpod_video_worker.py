@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -126,18 +127,53 @@ class JobSpec:
     image_format: str
 
 
+def log_runtime(message: str) -> None:
+    print(f"[runpod-video-worker] {message}", flush=True)
+
+
+def get_runtime_device_info() -> dict[str, Any]:
+    cuda_available = torch.cuda.is_available()
+    device_count = torch.cuda.device_count() if cuda_available else 0
+    device_name = torch.cuda.get_device_name(0) if cuda_available and device_count > 0 else "cpu"
+    return {
+        "cuda_available": cuda_available,
+        "device_count": device_count,
+        "device_name": device_name,
+    }
+
+
 def process_runpod_job(event: dict[str, Any]) -> dict[str, Any]:
+    started_at = time.perf_counter()
     job_input = dict(event.get("input") or {})
     job_id = resolve_job_id(event, job_input)
     job_spec = build_job_spec(job_input, job_id)
+    device_info = get_runtime_device_info()
+
+    log_runtime(
+        "job_start "
+        f"job_id={job_id} media_type={job_spec.media_type} prompt_chars={len(job_spec.prompt)} "
+        f"frames={job_spec.frames} fps={job_spec.fps} steps={job_spec.steps} "
+        f"native={job_spec.native_width}x{job_spec.native_height} output={job_spec.output_width}x{job_spec.output_height} "
+        f"cuda_available={device_info['cuda_available']} device_count={device_info['device_count']} device_name={device_info['device_name']}"
+    )
 
     with JOB_LOCK:
         if job_spec.media_type == "image":
+            render_started_at = time.perf_counter()
             output_path = render_image(job_id, job_spec, get_image_pipeline())
+            render_elapsed = time.perf_counter() - render_started_at
+            log_runtime(f"image_render_complete job_id={job_id} elapsed_seconds={render_elapsed:.2f} output_path={output_path}")
+            upload_started_at = time.perf_counter()
             s3_result = upload_artifact_to_s3(job_id, output_path, job_spec.image_format, image_content_type(job_spec.image_format))
         else:
+            render_started_at = time.perf_counter()
             output_path = render_video(job_id, job_spec, get_video_pipeline())
+            render_elapsed = time.perf_counter() - render_started_at
+            log_runtime(f"video_render_complete job_id={job_id} elapsed_seconds={render_elapsed:.2f} output_path={output_path}")
+            upload_started_at = time.perf_counter()
             s3_result = upload_artifact_to_s3(job_id, output_path, "mp4", "video/mp4")
+        upload_elapsed = time.perf_counter() - upload_started_at
+        log_runtime(f"artifact_upload_complete job_id={job_id} elapsed_seconds={upload_elapsed:.2f} artifact_url={s3_result['url']}")
         cleaned_up = cleanup_local_output(output_path)
 
     response = {
@@ -160,6 +196,8 @@ def process_runpod_job(event: dict[str, Any]) -> dict[str, Any]:
         "expected_artifact_url": s3_result["expected_url"],
         "artifact_extension": s3_result["extension"],
         "local_output_deleted": cleaned_up,
+        "cuda_available": device_info["cuda_available"],
+        "device_name": device_info["device_name"],
     }
     if job_spec.media_type == "video":
         response["motion_adapter_id"] = DEFAULT_MOTION_ADAPTER_ID
@@ -170,6 +208,9 @@ def process_runpod_job(event: dict[str, Any]) -> dict[str, Any]:
     else:
         response["image_url"] = s3_result["url"]
         response["expected_image_url"] = s3_result["expected_url"]
+    total_elapsed = time.perf_counter() - started_at
+    response["total_elapsed_seconds"] = round(total_elapsed, 2)
+    log_runtime(f"job_complete job_id={job_id} total_elapsed_seconds={total_elapsed:.2f}")
     return response
 
 
@@ -245,11 +286,14 @@ def get_video_pipeline() -> AnimateDiffPipeline:
     global VIDEO_PIPELINE
     with PIPELINE_LOCK:
         if VIDEO_PIPELINE is not None:
+            log_runtime("video_pipeline_cache_hit")
             return VIDEO_PIPELINE
 
+        load_started_at = time.perf_counter()
         cache_dir = resolve_cache_dir()
         use_cuda = torch.cuda.is_available()
         dtype = torch.float16 if use_cuda else torch.float32
+        log_runtime(f"video_pipeline_init_start cache_dir={cache_dir} use_cuda={use_cuda} dtype={dtype}")
 
         configure_torch_backends(use_cuda)
         motion_adapter = MotionAdapter.from_pretrained(
@@ -283,6 +327,8 @@ def get_video_pipeline() -> AnimateDiffPipeline:
             pipeline.unet.enable_forward_chunking(chunk_size=1, dim=1)
         move_pipeline_to_device(pipeline, use_cuda)
         VIDEO_PIPELINE = pipeline
+        elapsed = time.perf_counter() - load_started_at
+        log_runtime(f"video_pipeline_init_complete elapsed_seconds={elapsed:.2f} device={'cuda' if use_cuda else 'cpu'}")
         return VIDEO_PIPELINE
 
 
@@ -290,11 +336,14 @@ def get_image_pipeline() -> StableDiffusionPipeline:
     global IMAGE_PIPELINE
     with PIPELINE_LOCK:
         if IMAGE_PIPELINE is not None:
+            log_runtime("image_pipeline_cache_hit")
             return IMAGE_PIPELINE
 
+        load_started_at = time.perf_counter()
         cache_dir = resolve_cache_dir()
         use_cuda = torch.cuda.is_available()
         dtype = torch.float16 if use_cuda else torch.float32
+        log_runtime(f"image_pipeline_init_start cache_dir={cache_dir} use_cuda={use_cuda} dtype={dtype}")
 
         configure_torch_backends(use_cuda)
         vae = AutoencoderKL.from_pretrained(
@@ -314,6 +363,8 @@ def get_image_pipeline() -> StableDiffusionPipeline:
         pipeline.enable_attention_slicing()
         move_pipeline_to_device(pipeline, use_cuda)
         IMAGE_PIPELINE = pipeline
+        elapsed = time.perf_counter() - load_started_at
+        log_runtime(f"image_pipeline_init_complete elapsed_seconds={elapsed:.2f} device={'cuda' if use_cuda else 'cpu'}")
         return IMAGE_PIPELINE
 
 
