@@ -44,6 +44,26 @@ for env_path in ENV_CANDIDATE_PATHS:
     load_env_file(env_path)
 
 
+def bootstrap_huggingface_cache_env() -> None:
+    configured = os.environ.get("MODEL_CACHE_DIR", "").strip()
+    if configured:
+        cache_dir = Path(configured)
+    elif Path("/runpod-volume").exists():
+        cache_dir = Path("/runpod-volume/hf-cache")
+    else:
+        cache_dir = ROOT_DIR / "models_cache"
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+    os.environ.setdefault("HF_HOME", str(cache_dir))
+    os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(cache_dir))
+    os.environ.setdefault("TRANSFORMERS_CACHE", str(cache_dir))
+    os.environ.setdefault("DIFFUSERS_CACHE", str(cache_dir))
+
+
+bootstrap_huggingface_cache_env()
+
+
 DELETE_LOCAL_OUTPUT_AFTER_UPLOAD = os.environ.get("DELETE_LOCAL_OUTPUT_AFTER_UPLOAD", "true").strip().lower() not in {"0", "false", "no", "off"}
 DEFAULT_MODEL_ID = os.environ.get("DEFAULT_MODEL_ID", "emilianJR/epiCRealism")
 DEFAULT_MOTION_ADAPTER_ID = os.environ.get("DEFAULT_MOTION_ADAPTER_ID", "wangfuyun/AnimateLCM")
@@ -71,6 +91,7 @@ DEFAULT_MEDIA_TYPE = os.environ.get("DEFAULT_MEDIA_TYPE", "video").strip().lower
 DEFAULT_LORA_SCALE = float(os.environ.get("DEFAULT_LORA_SCALE", "0.8"))
 DEFAULT_SEED = int(os.environ.get("DEFAULT_SEED", "12345"))
 DEFAULT_DECODE_CHUNK_SIZE = int(os.environ.get("DEFAULT_DECODE_CHUNK_SIZE", "8"))
+MIN_CACHE_FREE_GB = float(os.environ.get("MIN_CACHE_FREE_GB", "12"))
 
 PIPELINE_LOCK = threading.Lock()
 JOB_LOCK = threading.Lock()
@@ -372,7 +393,26 @@ def resolve_cache_dir() -> Path:
     else:
         cache_dir = ROOT_DIR / "models_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
+    ensure_cache_has_free_space(cache_dir)
     return cache_dir
+
+
+def ensure_cache_has_free_space(cache_dir: Path) -> None:
+    try:
+        usage = shutil.disk_usage(cache_dir)
+    except OSError:
+        return
+
+    required_bytes = int(MIN_CACHE_FREE_GB * 1024 * 1024 * 1024)
+    if usage.free >= required_bytes:
+        return
+
+    free_gb = usage.free / (1024 * 1024 * 1024)
+    raise RuntimeError(
+        "Insufficient disk space for Hugging Face model download. "
+        f"Cache path '{cache_dir}' has only {free_gb:.2f} GB free, but at least {MIN_CACHE_FREE_GB:.0f} GB is recommended. "
+        "Mount a larger /runpod-volume or set MODEL_CACHE_DIR to a larger disk path."
+    )
 
 
 def stable_seed(job_id: str) -> int:

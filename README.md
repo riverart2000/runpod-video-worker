@@ -35,6 +35,8 @@ The worker is built for small image size and fast inference:
 
 The model weights are downloaded at runtime and cached on first use. The cache defaults to `/runpod-volume/hf-cache` when that path exists, otherwise a local `models_cache/` folder is used.
 
+For RunPod deployment, use a persistent volume when possible. The worker now disables the Hugging Face Xet download path and checks free space in the cache directory before loading models so low-disk failures are clearer.
+
 ## Files
 
 - `handler.py` - RunPod queue worker entrypoint.
@@ -179,6 +181,7 @@ Optional:
 - `RUNPOD_S3_UPLOAD_ACL` - for example `public-read` if the bucket policy expects ACLs
 - `RUNPOD_S3_PRESIGN=true` - return a presigned download URL instead of the deterministic public URL
 - `MODEL_CACHE_DIR`
+- `MIN_CACHE_FREE_GB` - minimum free space required in the model cache path before model download starts. Defaults to `12`.
 - `DEFAULT_MODEL_ID`
 - `DEFAULT_MOTION_ADAPTER_ID`
 - `DEFAULT_LORA_REPOSITORY`
