@@ -1,28 +1,26 @@
-FROM runpod/worker-comfyui:5.8.5-base
+FROM python:3.11-slim-bookworm
 
-ENV COMFYUI_DIR=/comfyui \
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-WORKDIR /
+WORKDIR /worker
 
-RUN test -d "$COMFYUI_DIR"
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    ffmpeg \
+    libgomp1 && \
+    rm -rf /var/lib/apt/lists/*
 
-RUN pip install --upgrade pip
-
-RUN cd "$COMFYUI_DIR/custom_nodes" && \
-    git clone --depth 1 https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved.git && \
-    git clone --depth 1 https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git
-
-RUN pip install -r "$COMFYUI_DIR/custom_nodes/ComfyUI-VideoHelperSuite/requirements.txt"
+RUN python -m pip install --upgrade pip
 
 COPY requirements.txt /tmp/runpod-worker-requirements.txt
-RUN pip install -r /tmp/runpod-worker-requirements.txt && rm /tmp/runpod-worker-requirements.txt
+RUN python -m pip install --index-url https://download.pytorch.org/whl/cu121 \
+    torch==2.5.1 && \
+    python -m pip install -r /tmp/runpod-worker-requirements.txt && \
+    rm /tmp/runpod-worker-requirements.txt
 
 COPY . /worker
-
-RUN chmod +x /worker/startup.sh
-
-WORKDIR /worker
 
 CMD ["python", "handler.py"]

@@ -9,3 +9,5 @@ venv/
 output/
 temp/
 logs/
+models_cache/
+.hf-cache/
