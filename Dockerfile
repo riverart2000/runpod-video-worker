@@ -9,7 +9,6 @@ WORKDIR /worker
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
-    ffmpeg \
     libgomp1 && \
     rm -rf /var/lib/apt/lists/*
 

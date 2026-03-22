@@ -14,8 +14,9 @@ from urllib.parse import quote, urlparse
 
 import boto3
 import torch
-from diffusers import AnimateDiffPipeline, AutoencoderKL, LCMScheduler, MotionAdapter
+from diffusers import AnimateDiffPipeline, AutoencoderKL, LCMScheduler, MotionAdapter, StableDiffusionPipeline
 from diffusers.utils import export_to_video
+from PIL import Image, ImageOps
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -60,22 +61,36 @@ DEFAULT_OUTPUT_HEIGHT = int(os.environ.get("DEFAULT_OUTPUT_HEIGHT", "1280"))
 DEFAULT_VIDEO_FRAMES = int(os.environ.get("DEFAULT_VIDEO_FRAMES", "16"))
 MAX_VIDEO_FRAMES = int(os.environ.get("MAX_VIDEO_FRAMES", "24"))
 DEFAULT_VIDEO_FPS = int(os.environ.get("DEFAULT_VIDEO_FPS", "6"))
-DEFAULT_STEPS = int(os.environ.get("DEFAULT_STEPS", "8"))
-MAX_STEPS = int(os.environ.get("MAX_STEPS", "12"))
-DEFAULT_GUIDANCE_SCALE = float(os.environ.get("DEFAULT_GUIDANCE_SCALE", "1.8"))
+DEFAULT_VIDEO_STEPS = int(os.environ.get("DEFAULT_STEPS", "8"))
+MAX_VIDEO_STEPS = int(os.environ.get("MAX_STEPS", "12"))
+DEFAULT_VIDEO_GUIDANCE_SCALE = float(os.environ.get("DEFAULT_GUIDANCE_SCALE", "1.8"))
+DEFAULT_IMAGE_STEPS = int(os.environ.get("DEFAULT_IMAGE_STEPS", "20"))
+MAX_IMAGE_STEPS = int(os.environ.get("MAX_IMAGE_STEPS", "30"))
+DEFAULT_IMAGE_GUIDANCE_SCALE = float(os.environ.get("DEFAULT_IMAGE_GUIDANCE_SCALE", "7.0"))
+DEFAULT_MEDIA_TYPE = os.environ.get("DEFAULT_MEDIA_TYPE", "video").strip().lower() or "video"
 DEFAULT_LORA_SCALE = float(os.environ.get("DEFAULT_LORA_SCALE", "0.8"))
 DEFAULT_SEED = int(os.environ.get("DEFAULT_SEED", "12345"))
 DEFAULT_DECODE_CHUNK_SIZE = int(os.environ.get("DEFAULT_DECODE_CHUNK_SIZE", "8"))
-FFMPEG_PRESET = os.environ.get("FFMPEG_PRESET", "veryfast")
-FFMPEG_CRF = int(os.environ.get("FFMPEG_CRF", "23"))
 
 PIPELINE_LOCK = threading.Lock()
 JOB_LOCK = threading.Lock()
-PIPELINE: AnimateDiffPipeline | None = None
+VIDEO_PIPELINE: AnimateDiffPipeline | None = None
+IMAGE_PIPELINE: StableDiffusionPipeline | None = None
+
+
+def normalize_image_format(value: str | None) -> str:
+    normalized = str(value or "png").strip().lower()
+    if normalized in {"jpg", "jpeg"}:
+        return "jpg"
+    return "png"
+
+
+DEFAULT_IMAGE_FORMAT = normalize_image_format(os.environ.get("DEFAULT_IMAGE_FORMAT", "png"))
 
 
 @dataclass(frozen=True)
 class JobSpec:
+    media_type: str
     prompt: str
     negative_prompt: str
     native_width: int
@@ -87,6 +102,7 @@ class JobSpec:
     steps: int
     guidance_scale: float
     seed: int
+    image_format: str
 
 
 def process_runpod_job(event: dict[str, Any]) -> dict[str, Any]:
@@ -95,16 +111,19 @@ def process_runpod_job(event: dict[str, Any]) -> dict[str, Any]:
     job_spec = build_job_spec(job_input, job_id)
 
     with JOB_LOCK:
-        pipeline = get_pipeline()
-        output_path = render_video(job_id, job_spec, pipeline)
-        s3_result = upload_video_to_s3(job_id, output_path)
+        if job_spec.media_type == "image":
+            output_path = render_image(job_id, job_spec, get_image_pipeline())
+            s3_result = upload_artifact_to_s3(job_id, output_path, job_spec.image_format, image_content_type(job_spec.image_format))
+        else:
+            output_path = render_video(job_id, job_spec, get_video_pipeline())
+            s3_result = upload_artifact_to_s3(job_id, output_path, "mp4", "video/mp4")
         cleaned_up = cleanup_local_output(output_path)
 
-    return {
+    response = {
         "status": "COMPLETED",
         "job_id": job_id,
+        "media_type": job_spec.media_type,
         "model_id": DEFAULT_MODEL_ID,
-        "motion_adapter_id": DEFAULT_MOTION_ADAPTER_ID,
         "native_width": job_spec.native_width,
         "native_height": job_spec.native_height,
         "output_width": job_spec.output_width,
@@ -116,10 +135,21 @@ def process_runpod_job(event: dict[str, Any]) -> dict[str, Any]:
         "seed": job_spec.seed,
         "s3_bucket": s3_result["bucket"],
         "s3_key": s3_result["key"],
-        "video_url": s3_result["url"],
-        "expected_video_url": s3_result["expected_url"],
+        "artifact_url": s3_result["url"],
+        "expected_artifact_url": s3_result["expected_url"],
+        "artifact_extension": s3_result["extension"],
         "local_output_deleted": cleaned_up,
     }
+    if job_spec.media_type == "video":
+        response["motion_adapter_id"] = DEFAULT_MOTION_ADAPTER_ID
+        response["video_url"] = s3_result["url"]
+        response["expected_video_url"] = s3_result["expected_url"]
+        response["video_is_raw_native"] = True
+        response["local_postprocess_required"] = True
+    else:
+        response["image_url"] = s3_result["url"]
+        response["expected_image_url"] = s3_result["expected_url"]
+    return response
 
 
 def resolve_job_id(event: dict[str, Any], job_input: dict[str, Any]) -> str:
@@ -136,30 +166,45 @@ def resolve_job_id(event: dict[str, Any], job_input: dict[str, Any]) -> str:
 
 
 def build_job_spec(job_input: dict[str, Any], job_id: str) -> JobSpec:
-    prompt = str(job_input.get("prompt") or job_input.get("video_prompt") or "").strip()
+    media_type = str(job_input.get("type") or job_input.get("media_type") or DEFAULT_MEDIA_TYPE).strip().lower()
+    if media_type not in {"video", "image"}:
+        raise ValueError("input.type must be either 'video' or 'image'.")
+
+    prompt = str(job_input.get("prompt") or job_input.get("video_prompt") or job_input.get("image_prompt") or "").strip()
     if not prompt:
-        raise ValueError("input.prompt or input.video_prompt is required.")
+        raise ValueError("input.prompt, input.video_prompt, or input.image_prompt is required.")
 
     native_width = normalize_dimension(job_input.get("width"), DEFAULT_NATIVE_WIDTH)
     native_height = normalize_dimension(job_input.get("height"), DEFAULT_NATIVE_HEIGHT)
     output_width = normalize_dimension(job_input.get("output_width") or job_input.get("target_width"), DEFAULT_OUTPUT_WIDTH)
     output_height = normalize_dimension(job_input.get("output_height") or job_input.get("target_height"), DEFAULT_OUTPUT_HEIGHT)
-    frames = clamp(to_int(job_input.get("frames"), DEFAULT_VIDEO_FRAMES), 8, MAX_VIDEO_FRAMES)
-    fps = clamp(to_int(job_input.get("fps"), DEFAULT_VIDEO_FPS), 1, 24)
-    steps = clamp(to_int(job_input.get("steps"), DEFAULT_STEPS), 4, MAX_STEPS)
-    guidance_scale = clamp_float(
-        to_float(job_input.get("guidance_scale"), to_float(job_input.get("cfg"), DEFAULT_GUIDANCE_SCALE)),
-        1.0,
-        4.0,
-    )
     negative_prompt = str(job_input.get("negative_prompt") or DEFAULT_NEGATIVE_PROMPT).strip()
 
-    if job_input.get("seed") is None:
-        seed = stable_seed(job_id)
+    if media_type == "image":
+        frames = 1
+        fps = 1
+        steps = clamp(to_int(job_input.get("steps"), DEFAULT_IMAGE_STEPS), 4, MAX_IMAGE_STEPS)
+        guidance_scale = clamp_float(
+            to_float(job_input.get("guidance_scale"), to_float(job_input.get("cfg"), DEFAULT_IMAGE_GUIDANCE_SCALE)),
+            1.0,
+            20.0,
+        )
+        image_format = normalize_image_format(job_input.get("image_format") or job_input.get("format") or DEFAULT_IMAGE_FORMAT)
     else:
-        seed = to_int(job_input.get("seed"), DEFAULT_SEED)
+        frames = clamp(to_int(job_input.get("frames"), DEFAULT_VIDEO_FRAMES), 8, MAX_VIDEO_FRAMES)
+        fps = clamp(to_int(job_input.get("fps"), DEFAULT_VIDEO_FPS), 1, 24)
+        steps = clamp(to_int(job_input.get("steps"), DEFAULT_VIDEO_STEPS), 4, MAX_VIDEO_STEPS)
+        guidance_scale = clamp_float(
+            to_float(job_input.get("guidance_scale"), to_float(job_input.get("cfg"), DEFAULT_VIDEO_GUIDANCE_SCALE)),
+            1.0,
+            4.0,
+        )
+        image_format = DEFAULT_IMAGE_FORMAT
+
+    seed = stable_seed(job_id) if job_input.get("seed") is None else to_int(job_input.get("seed"), DEFAULT_SEED)
 
     return JobSpec(
+        media_type=media_type,
         prompt=prompt,
         negative_prompt=negative_prompt,
         native_width=native_width,
@@ -171,23 +216,21 @@ def build_job_spec(job_input: dict[str, Any], job_id: str) -> JobSpec:
         steps=steps,
         guidance_scale=guidance_scale,
         seed=seed,
+        image_format=image_format,
     )
 
 
-def get_pipeline() -> AnimateDiffPipeline:
-    global PIPELINE
+def get_video_pipeline() -> AnimateDiffPipeline:
+    global VIDEO_PIPELINE
     with PIPELINE_LOCK:
-        if PIPELINE is not None:
-            return PIPELINE
+        if VIDEO_PIPELINE is not None:
+            return VIDEO_PIPELINE
 
         cache_dir = resolve_cache_dir()
         use_cuda = torch.cuda.is_available()
         dtype = torch.float16 if use_cuda else torch.float32
 
-        if use_cuda:
-            torch.backends.cuda.matmul.allow_tf32 = True
-            torch.backends.cudnn.allow_tf32 = True
-
+        configure_torch_backends(use_cuda)
         motion_adapter = MotionAdapter.from_pretrained(
             DEFAULT_MOTION_ADAPTER_ID,
             cache_dir=str(cache_dir),
@@ -215,26 +258,59 @@ def get_pipeline() -> AnimateDiffPipeline:
         pipeline.set_adapters(["lcm"], [DEFAULT_LORA_SCALE])
         pipeline.enable_vae_slicing()
         pipeline.enable_attention_slicing()
-
         if hasattr(pipeline.unet, "enable_forward_chunking"):
             pipeline.unet.enable_forward_chunking(chunk_size=1, dim=1)
+        move_pipeline_to_device(pipeline, use_cuda)
+        VIDEO_PIPELINE = pipeline
+        return VIDEO_PIPELINE
 
-        if use_cuda:
-            pipeline.to("cuda")
-        else:
-            pipeline.to("cpu")
 
-        PIPELINE = pipeline
-        return PIPELINE
+def get_image_pipeline() -> StableDiffusionPipeline:
+    global IMAGE_PIPELINE
+    with PIPELINE_LOCK:
+        if IMAGE_PIPELINE is not None:
+            return IMAGE_PIPELINE
+
+        cache_dir = resolve_cache_dir()
+        use_cuda = torch.cuda.is_available()
+        dtype = torch.float16 if use_cuda else torch.float32
+
+        configure_torch_backends(use_cuda)
+        vae = AutoencoderKL.from_pretrained(
+            DEFAULT_VAE_ID,
+            cache_dir=str(cache_dir),
+            torch_dtype=dtype,
+        )
+        pipeline = StableDiffusionPipeline.from_pretrained(
+            DEFAULT_MODEL_ID,
+            vae=vae,
+            cache_dir=str(cache_dir),
+            torch_dtype=dtype,
+            safety_checker=None,
+            requires_safety_checker=False,
+        )
+        pipeline.enable_vae_slicing()
+        pipeline.enable_attention_slicing()
+        move_pipeline_to_device(pipeline, use_cuda)
+        IMAGE_PIPELINE = pipeline
+        return IMAGE_PIPELINE
+
+
+def configure_torch_backends(use_cuda: bool) -> None:
+    if not use_cuda:
+        return
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+
+
+def move_pipeline_to_device(pipeline: Any, use_cuda: bool) -> None:
+    pipeline.to("cuda" if use_cuda else "cpu")
 
 
 def render_video(job_id: str, job_spec: JobSpec, pipeline: AnimateDiffPipeline) -> Path:
     use_cuda = torch.cuda.is_available()
-    generator_device = "cuda" if use_cuda else "cpu"
-    generator = torch.Generator(device=generator_device).manual_seed(job_spec.seed)
-
+    generator = torch.Generator(device=("cuda" if use_cuda else "cpu")).manual_seed(job_spec.seed)
     temp_dir = Path(tempfile.mkdtemp(prefix=f"runpod-video-{job_id}-", dir=str(ROOT_DIR)))
-    native_video_path = temp_dir / f"{job_id}-native.mp4"
     output_video_path = temp_dir / f"{job_id}.mp4"
 
     try:
@@ -250,47 +326,41 @@ def render_video(job_id: str, job_spec: JobSpec, pipeline: AnimateDiffPipeline) 
             generator=generator,
             output_type="pil",
         )
-        frames = result.frames[0]
-        export_to_video(frames, str(native_video_path), fps=job_spec.fps)
-        transcode_video(native_video_path, output_video_path, job_spec)
+        export_to_video(result.frames[0], str(output_video_path), fps=job_spec.fps)
         return output_video_path
     except Exception:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
     finally:
-        if use_cuda:
-            torch.cuda.empty_cache()
+        clear_cuda_cache(use_cuda)
 
 
-def transcode_video(input_path: Path, output_path: Path, job_spec: JobSpec) -> None:
-    scale_filter = (
-        f"scale={job_spec.output_width}:{job_spec.output_height}:force_original_aspect_ratio=decrease,"
-        f"pad={job_spec.output_width}:{job_spec.output_height}:(ow-iw)/2:(oh-ih)/2:black,"
-        f"fps={job_spec.fps},format=yuv420p"
-    )
-    command = [
-        "ffmpeg",
-        "-y",
-        "-i",
-        str(input_path),
-        "-vf",
-        scale_filter,
-        "-an",
-        "-c:v",
-        "libx264",
-        "-preset",
-        FFMPEG_PRESET,
-        "-crf",
-        str(FFMPEG_CRF),
-        "-movflags",
-        "+faststart",
-        str(output_path),
-    ]
-    completed = subprocess.run(command, capture_output=True, text=True)
-    if completed.returncode != 0:
-        raise RuntimeError(f"ffmpeg failed: {completed.stderr.strip() or completed.stdout.strip()}")
+def render_image(job_id: str, job_spec: JobSpec, pipeline: StableDiffusionPipeline) -> Path:
+    use_cuda = torch.cuda.is_available()
+    generator = torch.Generator(device=("cuda" if use_cuda else "cpu")).manual_seed(job_spec.seed)
+    temp_dir = Path(tempfile.mkdtemp(prefix=f"runpod-image-{job_id}-", dir=str(ROOT_DIR)))
+    output_image_path = temp_dir / f"{job_id}.{job_spec.image_format}"
 
-    input_path.unlink(missing_ok=True)
+    try:
+        result = pipeline(
+            prompt=job_spec.prompt,
+            negative_prompt=job_spec.negative_prompt,
+            guidance_scale=job_spec.guidance_scale,
+            num_inference_steps=job_spec.steps,
+            width=job_spec.native_width,
+            height=job_spec.native_height,
+            generator=generator,
+            output_type="pil",
+        )
+        image = result.images[0].convert("RGB")
+        image = ImageOps.pad(image, (job_spec.output_width, job_spec.output_height), method=Image.Resampling.LANCZOS, color="black")
+        image.save(output_image_path, format=image_save_format(job_spec.image_format), optimize=True)
+        return output_image_path
+    except Exception:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
+    finally:
+        clear_cuda_cache(use_cuda)
 
 
 def resolve_cache_dir() -> Path:
@@ -315,24 +385,23 @@ def normalize_dimension(value: Any, default: int) -> int:
     return dimension - (dimension % 8)
 
 
-def upload_video_to_s3(job_id: str, output_path: Path) -> dict[str, str]:
+def upload_artifact_to_s3(job_id: str, output_path: Path, extension: str, content_type: str) -> dict[str, str]:
     base_url = os.environ.get("RUNPOD_S3_URL", "").strip()
     if not base_url:
         raise RuntimeError("RUNPOD_S3_URL is required.")
 
     destination = parse_s3_destination(base_url)
-    key = f"{destination['prefix']}{job_id}.mp4"
+    key = f"{destination['prefix']}{job_id}.{extension}"
     bucket = destination["bucket"]
     region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or destination.get("region") or None
-
     client = boto3.client("s3", region_name=region)
-    extra_args: dict[str, str] = {"ContentType": "video/mp4"}
+    extra_args: dict[str, str] = {"ContentType": content_type}
     acl = os.environ.get("RUNPOD_S3_UPLOAD_ACL", "").strip()
     if acl:
         extra_args["ACL"] = acl
     client.upload_file(str(output_path), bucket, key, ExtraArgs=extra_args)
 
-    expected_url = f"{destination['base_url']}{quote(job_id)}.mp4"
+    expected_url = f"{destination['base_url']}{quote(job_id)}.{extension}"
     presign_enabled = os.environ.get("RUNPOD_S3_PRESIGN", "false").strip().lower() in {"1", "true", "yes", "on"}
     url = expected_url
     if presign_enabled:
@@ -348,6 +417,7 @@ def upload_video_to_s3(job_id: str, output_path: Path) -> dict[str, str]:
         "key": key,
         "url": url,
         "expected_url": expected_url,
+        "extension": extension,
     }
 
 
@@ -396,6 +466,19 @@ def cleanup_local_output(output_path: Path) -> bool:
         return False
     except OSError:
         return False
+
+
+def clear_cuda_cache(use_cuda: bool) -> None:
+    if use_cuda:
+        torch.cuda.empty_cache()
+
+
+def image_content_type(image_format: str) -> str:
+    return "image/jpeg" if image_format == "jpg" else "image/png"
+
+
+def image_save_format(image_format: str) -> str:
+    return "JPEG" if image_format == "jpg" else "PNG"
 
 
 def clamp(value: int, minimum: int, maximum: int) -> int:
