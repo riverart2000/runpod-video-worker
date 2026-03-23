@@ -8,20 +8,30 @@ from huggingface_hub import hf_hub_download, snapshot_download
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
+
+
+def env_or_default(name: str, default: str) -> str:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    stripped = value.strip()
+    return stripped or default
+
+
 MODEL_CACHE_DIR = Path(os.environ.get("MODEL_CACHE_DIR", "/opt/models/hf-cache")).resolve()
 COMFYUI_ROOT = Path(os.environ.get("COMFYUI_ROOT", "/opt/ComfyUI")).resolve()
 HF_TOKEN = os.environ.get("HF_TOKEN", "").strip() or None
 HF_TOKEN_FILE = os.environ.get("HF_TOKEN_FILE", "").strip()
 
-DEFAULT_MODEL_ID = os.environ.get("DEFAULT_MODEL_ID", "emilianJR/epiCRealism").strip()
-DEFAULT_MOTION_ADAPTER_ID = os.environ.get("DEFAULT_MOTION_ADAPTER_ID", "wangfuyun/AnimateLCM").strip()
-DEFAULT_LORA_REPOSITORY = os.environ.get("DEFAULT_LORA_REPOSITORY", DEFAULT_MOTION_ADAPTER_ID).strip()
-DEFAULT_LORA_WEIGHT_NAME = os.environ.get("DEFAULT_LORA_WEIGHT_NAME", "AnimateLCM_sd15_t2v_lora.safetensors").strip()
-DEFAULT_VAE_ID = os.environ.get("DEFAULT_VAE_ID", "stabilityai/sd-vae-ft-mse").strip()
+DEFAULT_MODEL_ID = env_or_default("DEFAULT_MODEL_ID", "emilianJR/epiCRealism")
+DEFAULT_MOTION_ADAPTER_ID = env_or_default("DEFAULT_MOTION_ADAPTER_ID", "wangfuyun/AnimateLCM")
+DEFAULT_LORA_REPOSITORY = env_or_default("DEFAULT_LORA_REPOSITORY", DEFAULT_MOTION_ADAPTER_ID)
+DEFAULT_LORA_WEIGHT_NAME = env_or_default("DEFAULT_LORA_WEIGHT_NAME", "AnimateLCM_sd15_t2v_lora.safetensors")
+DEFAULT_VAE_ID = env_or_default("DEFAULT_VAE_ID", "stabilityai/sd-vae-ft-mse")
 
-COMFYUI_CKPT_NAME = os.environ.get("COMFYUI_CKPT_NAME", "v1-5-pruned-emaonly.safetensors").strip()
-COMFYUI_MOTION_MODEL_NAME = os.environ.get("COMFYUI_MOTION_MODEL_NAME", "mm_sd_v15_v2.ckpt").strip()
-COMFYUI_LORA_NAME = os.environ.get("COMFYUI_LORA_NAME", "lcm-lora-sdv1-5.safetensors").strip()
+COMFYUI_CKPT_NAME = env_or_default("COMFYUI_CKPT_NAME", "v1-5-pruned-emaonly.safetensors")
+COMFYUI_MOTION_MODEL_NAME = env_or_default("COMFYUI_MOTION_MODEL_NAME", "mm_sd_v15_v2.ckpt")
+COMFYUI_LORA_NAME = env_or_default("COMFYUI_LORA_NAME", "lcm-lora-sdv1-5.safetensors")
 
 
 def env_flag(name: str, default: bool) -> bool:
@@ -143,20 +153,20 @@ def preload_comfyui_assets() -> None:
     maybe_download_comfyui_model(
         "checkpoints",
         COMFYUI_CKPT_NAME,
-        os.environ.get("COMFYUI_CKPT_SOURCE_REPO", "Syimbiote/v1-5-pruned-emaonly").strip(),
-        os.environ.get("COMFYUI_CKPT_SOURCE_FILENAME", "v1-5-pruned-emaonly.safetensors").strip(),
+        env_or_default("COMFYUI_CKPT_SOURCE_REPO", "Syimbiote/v1-5-pruned-emaonly"),
+        env_or_default("COMFYUI_CKPT_SOURCE_FILENAME", "v1-5-pruned-emaonly.safetensors"),
     )
     maybe_download_comfyui_model(
         "animatediff_models",
         COMFYUI_MOTION_MODEL_NAME,
-        os.environ.get("COMFYUI_MOTION_MODEL_SOURCE_REPO", "guoyww/animatediff").strip(),
-        os.environ.get("COMFYUI_MOTION_MODEL_SOURCE_FILENAME", "mm_sd_v15_v2.ckpt").strip(),
+        env_or_default("COMFYUI_MOTION_MODEL_SOURCE_REPO", "guoyww/animatediff"),
+        env_or_default("COMFYUI_MOTION_MODEL_SOURCE_FILENAME", "mm_sd_v15_v2.ckpt"),
     )
     maybe_download_comfyui_model(
         "loras",
         COMFYUI_LORA_NAME,
-        os.environ.get("COMFYUI_LORA_SOURCE_REPO", "latent-consistency/lcm-lora-sdv1-5").strip(),
-        os.environ.get("COMFYUI_LORA_SOURCE_FILENAME", "pytorch_lora_weights.safetensors").strip(),
+        env_or_default("COMFYUI_LORA_SOURCE_REPO", "latent-consistency/lcm-lora-sdv1-5"),
+        env_or_default("COMFYUI_LORA_SOURCE_FILENAME", "pytorch_lora_weights.safetensors"),
     )
 
 

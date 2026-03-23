@@ -16,6 +16,16 @@ from typing import Any
 
 
 ROOT_DIR = Path(__file__).resolve().parent
+
+
+def env_or_default(name: str, default: str) -> str:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    stripped = value.strip()
+    return stripped or default
+
+
 COMFYUI_ROOT = Path(os.environ.get("COMFYUI_ROOT", "/opt/ComfyUI")).resolve()
 COMFYUI_HOST = os.environ.get("COMFYUI_HOST", "127.0.0.1").strip() or "127.0.0.1"
 COMFYUI_PORT = int(os.environ.get("COMFYUI_PORT", "8188"))
@@ -28,9 +38,9 @@ COMFYUI_VIDEO_PRESET = os.environ.get("COMFYUI_VIDEO_PRESET", "veryfast").strip(
 COMFYUI_VIDEO_CRF = int(os.environ.get("COMFYUI_VIDEO_CRF", "23"))
 COMFYUI_VIDEO_PIX_FMT = os.environ.get("COMFYUI_VIDEO_PIX_FMT", "yuv420p").strip() or "yuv420p"
 
-COMFYUI_CKPT_NAME = os.environ.get("COMFYUI_CKPT_NAME", "v1-5-pruned-emaonly.safetensors").strip()
-COMFYUI_MOTION_MODEL_NAME = os.environ.get("COMFYUI_MOTION_MODEL_NAME", "mm_sd_v15_v2.ckpt").strip()
-COMFYUI_LORA_NAME = os.environ.get("COMFYUI_LORA_NAME", "lcm-lora-sdv1-5.safetensors").strip()
+COMFYUI_CKPT_NAME = env_or_default("COMFYUI_CKPT_NAME", "v1-5-pruned-emaonly.safetensors")
+COMFYUI_MOTION_MODEL_NAME = env_or_default("COMFYUI_MOTION_MODEL_NAME", "mm_sd_v15_v2.ckpt")
+COMFYUI_LORA_NAME = env_or_default("COMFYUI_LORA_NAME", "lcm-lora-sdv1-5.safetensors")
 
 SERVER_LOCK = threading.Lock()
 SERVER_PROCESS: subprocess.Popen[str] | None = None

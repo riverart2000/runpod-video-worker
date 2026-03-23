@@ -31,17 +31,27 @@ fi
 docker_build_cmd+=(
     --build-arg PRELOAD_DIFFUSERS_MODELS="$PRELOAD_DIFFUSERS_MODELS"
     --build-arg PRELOAD_COMFYUI_MODELS="$PRELOAD_COMFYUI_MODELS"
-    --build-arg COMFYUI_CKPT_NAME="${COMFYUI_CKPT_NAME:-}"
-    --build-arg COMFYUI_MOTION_MODEL_NAME="${COMFYUI_MOTION_MODEL_NAME:-}"
-    --build-arg COMFYUI_LORA_NAME="${COMFYUI_LORA_NAME:-}"
-    --build-arg COMFYUI_CKPT_SOURCE_REPO="${COMFYUI_CKPT_SOURCE_REPO:-}"
-    --build-arg COMFYUI_CKPT_SOURCE_FILENAME="${COMFYUI_CKPT_SOURCE_FILENAME:-}"
-    --build-arg COMFYUI_MOTION_MODEL_SOURCE_REPO="${COMFYUI_MOTION_MODEL_SOURCE_REPO:-}"
-    --build-arg COMFYUI_MOTION_MODEL_SOURCE_FILENAME="${COMFYUI_MOTION_MODEL_SOURCE_FILENAME:-}"
-    --build-arg COMFYUI_LORA_SOURCE_REPO="${COMFYUI_LORA_SOURCE_REPO:-}"
-    --build-arg COMFYUI_LORA_SOURCE_FILENAME="${COMFYUI_LORA_SOURCE_FILENAME:-}"
     .
 )
+
+optional_build_args=(
+    COMFYUI_CKPT_NAME
+    COMFYUI_MOTION_MODEL_NAME
+    COMFYUI_LORA_NAME
+    COMFYUI_CKPT_SOURCE_REPO
+    COMFYUI_CKPT_SOURCE_FILENAME
+    COMFYUI_MOTION_MODEL_SOURCE_REPO
+    COMFYUI_MOTION_MODEL_SOURCE_FILENAME
+    COMFYUI_LORA_SOURCE_REPO
+    COMFYUI_LORA_SOURCE_FILENAME
+)
+
+for arg_name in "${optional_build_args[@]}"; do
+        arg_value="${!arg_name:-}"
+        if [[ -n "$arg_value" ]]; then
+                docker_build_cmd+=(--build-arg "$arg_name=$arg_value")
+        fi
+done
 
 "${docker_build_cmd[@]}"
 
