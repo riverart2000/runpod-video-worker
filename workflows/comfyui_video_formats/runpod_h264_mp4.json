@@ -1,0 +1,52 @@
+{
+  "main_pass": [
+    "-n",
+    "-c:v",
+    "libx264",
+    "-preset",
+    [
+      "preset",
+      [
+        "veryfast",
+        "faster",
+        "fast",
+        "medium"
+      ],
+      {
+        "default": "veryfast"
+      }
+    ],
+    "-pix_fmt",
+    [
+      "pix_fmt",
+      [
+        "yuv420p",
+        "yuv420p10le"
+      ],
+      {
+        "default": "yuv420p"
+      }
+    ],
+    "-crf",
+    [
+      "crf",
+      "INT",
+      {
+        "default": 23,
+        "min": 0,
+        "max": 51,
+        "step": 1
+      }
+    ],
+    "-movflags",
+    "+faststart"
+  ],
+  "audio_pass": [
+    "-c:a",
+    "aac",
+    "-b:a",
+    "192k"
+  ],
+  "extension": "mp4",
+  "input_color_depth": "8bit"
+}

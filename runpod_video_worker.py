@@ -64,6 +64,8 @@ def bootstrap_huggingface_cache_env() -> None:
 
 bootstrap_huggingface_cache_env()
 
+from comfyui_backend import ComfyVideoJobSpec, render_video_with_comfyui
+
 
 DELETE_LOCAL_OUTPUT_AFTER_UPLOAD = os.environ.get("DELETE_LOCAL_OUTPUT_AFTER_UPLOAD", "true").strip().lower() not in {"0", "false", "no", "off"}
 DEFAULT_MODEL_ID = os.environ.get("DEFAULT_MODEL_ID", "emilianJR/epiCRealism")
@@ -93,6 +95,7 @@ DEFAULT_LORA_SCALE = float(os.environ.get("DEFAULT_LORA_SCALE", "0.8"))
 DEFAULT_SEED = int(os.environ.get("DEFAULT_SEED", "12345"))
 DEFAULT_DECODE_CHUNK_SIZE = int(os.environ.get("DEFAULT_DECODE_CHUNK_SIZE", "8"))
 MIN_CACHE_FREE_GB = float(os.environ.get("MIN_CACHE_FREE_GB", "12"))
+DEFAULT_VIDEO_BACKEND = os.environ.get("VIDEO_BACKEND", os.environ.get("WORKER_BACKEND", "diffusers")).strip().lower() or "diffusers"
 
 PIPELINE_LOCK = threading.Lock()
 JOB_LOCK = threading.Lock()
@@ -154,6 +157,7 @@ def process_runpod_job(event: dict[str, Any]) -> dict[str, Any]:
         f"job_id={job_id} media_type={job_spec.media_type} prompt_chars={len(job_spec.prompt)} "
         f"frames={job_spec.frames} fps={job_spec.fps} steps={job_spec.steps} "
         f"native={job_spec.native_width}x{job_spec.native_height} output={job_spec.output_width}x{job_spec.output_height} "
+        f"backend={resolve_video_backend(job_input, job_spec.media_type)} "
         f"cuda_available={device_info['cuda_available']} device_count={device_info['device_count']} device_name={device_info['device_name']}"
     )
 
@@ -167,11 +171,13 @@ def process_runpod_job(event: dict[str, Any]) -> dict[str, Any]:
             s3_result = upload_artifact_to_s3(job_id, output_path, job_spec.image_format, image_content_type(job_spec.image_format))
         else:
             render_started_at = time.perf_counter()
-            output_path = render_video(job_id, job_spec, get_video_pipeline())
+            backend = resolve_video_backend(job_input, job_spec.media_type)
+            output_path = render_video_for_backend(job_id, job_spec, backend)
             render_elapsed = time.perf_counter() - render_started_at
-            log_runtime(f"video_render_complete job_id={job_id} elapsed_seconds={render_elapsed:.2f} output_path={output_path}")
+            log_runtime(f"video_render_complete job_id={job_id} backend={backend} elapsed_seconds={render_elapsed:.2f} output_path={output_path}")
             upload_started_at = time.perf_counter()
-            s3_result = upload_artifact_to_s3(job_id, output_path, "mp4", "video/mp4")
+            output_extension = normalize_video_extension(output_path.suffix)
+            s3_result = upload_artifact_to_s3(job_id, output_path, output_extension, video_content_type(output_extension))
         upload_elapsed = time.perf_counter() - upload_started_at
         log_runtime(f"artifact_upload_complete job_id={job_id} elapsed_seconds={upload_elapsed:.2f} artifact_url={s3_result['url']}")
         cleaned_up = cleanup_local_output(output_path)
@@ -201,6 +207,7 @@ def process_runpod_job(event: dict[str, Any]) -> dict[str, Any]:
     }
     if job_spec.media_type == "video":
         response["motion_adapter_id"] = DEFAULT_MOTION_ADAPTER_ID
+        response["video_backend"] = resolve_video_backend(job_input, job_spec.media_type)
         response["video_url"] = s3_result["url"]
         response["expected_video_url"] = s3_result["expected_url"]
         response["video_is_raw_native"] = True
@@ -407,6 +414,34 @@ def render_video(job_id: str, job_spec: JobSpec, pipeline: AnimateDiffPipeline) 
         clear_cuda_cache(use_cuda)
 
 
+def render_video_for_backend(job_id: str, job_spec: JobSpec, backend: str) -> Path:
+    if backend == "comfyui":
+        return render_video_with_comfyui(
+            job_id,
+            ComfyVideoJobSpec(
+                prompt=job_spec.prompt,
+                negative_prompt=job_spec.negative_prompt,
+                native_width=job_spec.native_width,
+                native_height=job_spec.native_height,
+                frames=job_spec.frames,
+                fps=job_spec.fps,
+                steps=job_spec.steps,
+                guidance_scale=job_spec.guidance_scale,
+                seed=job_spec.seed,
+            ),
+        )
+    return render_video(job_id, job_spec, get_video_pipeline())
+
+
+def resolve_video_backend(job_input: dict[str, Any], media_type: str) -> str:
+    if media_type != "video":
+        return "diffusers"
+    backend = str(job_input.get("backend") or job_input.get("video_backend") or DEFAULT_VIDEO_BACKEND).strip().lower()
+    if backend not in {"diffusers", "comfyui"}:
+        raise ValueError("input.backend must be either 'diffusers' or 'comfyui'.")
+    return backend
+
+
 def render_image(job_id: str, job_spec: JobSpec, pipeline: StableDiffusionPipeline) -> Path:
     use_cuda = torch.cuda.is_available()
     generator = torch.Generator(device=("cuda" if use_cuda else "cpu")).manual_seed(job_spec.seed)
@@ -566,6 +601,23 @@ def clear_cuda_cache(use_cuda: bool) -> None:
 
 def image_content_type(image_format: str) -> str:
     return "image/jpeg" if image_format == "jpg" else "image/png"
+
+
+def video_content_type(video_format: str) -> str:
+    if video_format == "webm":
+        return "video/webm"
+    if video_format == "mkv":
+        return "video/x-matroska"
+    if video_format == "mov":
+        return "video/quicktime"
+    return "video/mp4"
+
+
+def normalize_video_extension(value: str) -> str:
+    normalized = value.strip().lower().lstrip(".")
+    if normalized in {"webm", "mkv", "mov", "mp4"}:
+        return normalized
+    return "mp4"
 
 
 def image_save_format(image_format: str) -> str:

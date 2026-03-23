@@ -1,15 +1,19 @@
 # RunPod Queue Worker
 
-This folder is a standalone queue-based RunPod Serverless worker repository for generating either one raw MP4 or one image per job with direct diffusers pipelines.
+This folder is a standalone queue-based RunPod Serverless worker repository for generating either one raw MP4 or one image per job.
+
+It now supports two video backends:
+
+- `diffusers` - the original direct Python pipeline path
+- `comfyui` - a ComfyUI + AnimateLCM + FP16 path for lower-overhead video orchestration
 
 The worker is built for small image size and fast inference:
 
-- no ComfyUI
-- no custom nodes
-- one cached video pipeline and one cached image pipeline
+- optional ComfyUI runtime with `ComfyUI-AnimateDiff-Evolved` and `ComfyUI-VideoHelperSuite`
+- one cached direct diffusers video pipeline and one cached image pipeline
 - low native render resolution by default
 - raw/native video upload from the worker
-- final video formatting handled locally via `../clipflow/bin/finalize_runpod_video.sh`
+- final video formatting can still be handled locally after download if needed
 
 ## Contract
 
@@ -25,6 +29,7 @@ The worker is built for small image size and fast inference:
 - Video motion adapter: `wangfuyun/AnimateLCM`
 - Video LoRA: `AnimateLCM_sd15_t2v_lora.safetensors`
 - Image pipeline: `StableDiffusionPipeline` using the same base model family
+- ComfyUI video path: `CheckpointLoaderSimple` + `LoraLoader` + `ADE_AnimateDiffLoaderGen1` + `KSampler(lcm)` + `VHS_VideoCombine`
 - Default native render size: `360x640`
 - Default requested final size: `720x1280`
 - Default video frames: `16`
@@ -33,7 +38,9 @@ The worker is built for small image size and fast inference:
 - Default image steps: `20`
 - Default image format: `png`
 
-The model weights are downloaded at runtime and cached on first use. The cache defaults to `/runpod-volume/hf-cache` when that path exists, otherwise a local `models_cache/` folder is used.
+The Docker image is now designed to bake runtime assets in during image build. By default it uses `/opt/models/hf-cache` as the baked Hugging Face cache inside the image, so the worker can start without re-downloading the default diffusers stack.
+
+When the `comfyui` backend is enabled, ComfyUI is started headlessly inside the worker container and the worker submits a generated AnimateLCM workflow to the local ComfyUI API.
 
 For RunPod deployment, use a persistent volume when possible. The worker now disables the Hugging Face Xet download path and checks free space in the cache directory before loading models so low-disk failures are clearer.
 
@@ -41,7 +48,11 @@ For RunPod deployment, use a persistent volume when possible. The worker now dis
 
 - `handler.py` - RunPod queue worker entrypoint.
 - `runpod_video_worker.py` - direct video generation, image generation, and S3 upload.
+- `comfyui_backend.py` - headless ComfyUI launcher and AnimateLCM workflow submitter.
+- `bin/preload_runtime_assets.py` - build-time downloader/copier for diffusers and ComfyUI assets.
 - `Dockerfile` - slim runtime image for GitHub-to-RunPod deployment.
+- `docker-assets/README.md` - layout for local model assets copied into the image at build time.
+- `workflows/comfyui_video_formats/runpod_h264_mp4.json` - repo-owned MP4 output format copied into VideoHelperSuite.
 
 Local workspace helper:
 
@@ -90,6 +101,7 @@ Image example:
 Notes:
 
 - `type` may be `video` or `image`. It defaults to `video`.
+- `backend` may be `diffusers` or `comfyui` for video jobs. If omitted, `WORKER_BACKEND` / `VIDEO_BACKEND` decides.
 - `prompt` is required unless `video_prompt` or `image_prompt` is supplied.
 - `width` and `height` are the native generation size.
 - `output_width` and `output_height` are preserved in the job metadata for downstream local post-processing.
@@ -108,6 +120,7 @@ Video completion example:
   "job_id": "rp-123456",
   "media_type": "video",
   "model_id": "emilianJR/epiCRealism",
+  "video_backend": "comfyui",
   "motion_adapter_id": "wangfuyun/AnimateLCM",
   "native_width": 360,
   "native_height": 640,
@@ -159,6 +172,93 @@ Image completion example:
 }
 ```
 
+## ComfyUI backend
+
+The ComfyUI path is intended for video jobs only. Image jobs still use the direct diffusers image pipeline.
+
+The Docker image now provisions:
+
+- `ComfyUI`
+- `ComfyUI-AnimateDiff-Evolved`
+- `ComfyUI-VideoHelperSuite`
+- `ffmpeg`
+- baked Python bytecode for the worker, ComfyUI, and installed site-packages
+- a build-time asset preload pass for Hugging Face cache content and ComfyUI model files
+
+To use the `comfyui` backend you must provide local ComfyUI filenames, not Hugging Face repo ids:
+
+- `COMFYUI_CKPT_NAME` - SD1.5 checkpoint filename under `ComfyUI/models/checkpoints`
+- `COMFYUI_MOTION_MODEL_NAME` - AnimateLCM motion model filename under `ComfyUI/models/animatediff_models`
+- `COMFYUI_LORA_NAME` - AnimateLCM LoRA filename under `ComfyUI/models/loras`
+
+The worker submits a generated workflow equivalent to:
+
+1. load SD checkpoint
+2. load AnimateLCM LoRA
+3. encode positive / negative prompts
+4. create latent batch with `frames == batch_size`
+5. inject AnimateLCM motion model using `ADE_AnimateDiffLoaderGen1`
+6. sample with `KSampler` using `sampler_name=lcm`
+7. decode frames
+8. assemble MP4 with `VHS_VideoCombine`
+
+FP16 is enabled for the ComfyUI server by default through `COMFYUI_FORCE_FP16=true`, which starts ComfyUI with `--force-fp16`.
+
+## Build-time asset baking
+
+The Docker build now shifts as much cold-start work as possible into the image build:
+
+1. clones ComfyUI and required custom nodes during build
+2. installs Python dependencies during build
+3. preloads default diffusers assets into `/opt/models/hf-cache`
+4. copies local ComfyUI model files from `docker-assets/` when present
+5. optionally downloads missing ComfyUI model files from Hugging Face during build
+6. compiles Python bytecode for `/worker`, `/opt/ComfyUI`, and installed site-packages
+
+Local asset layout is documented in `docker-assets/README.md`.
+
+Useful Docker build args:
+
+- `PRELOAD_DIFFUSERS_MODELS=true|false`
+- `PRELOAD_COMFYUI_MODELS=true|false`
+- `HF_TOKEN_FILE=/path/to/token-file` for gated/private Hugging Face access during the smoke test
+- `COMFYUI_CKPT_NAME`, `COMFYUI_MOTION_MODEL_NAME`, `COMFYUI_LORA_NAME`
+- `COMFYUI_CKPT_SOURCE_REPO` and `COMFYUI_CKPT_SOURCE_FILENAME`
+- `COMFYUI_MOTION_MODEL_SOURCE_REPO` and `COMFYUI_MOTION_MODEL_SOURCE_FILENAME`
+- `COMFYUI_LORA_SOURCE_REPO` and `COMFYUI_LORA_SOURCE_FILENAME`
+
+For the fastest worker startup, put the exact ComfyUI files you want under `docker-assets/comfyui-models/` before building the image. That avoids any model download during container boot.
+
+## Image smoke test
+
+Use the repo-local smoke test to verify that the image builds and contains the expected runtime pieces:
+
+```bash
+bin/smoke_test_docker_image.sh
+```
+
+By default it runs the fastest validation mode with both preload paths disabled, which verifies:
+
+- the image builds successfully
+- ComfyUI and custom nodes are present
+- the repo-owned video format file is present
+- worker modules import correctly inside the container
+- Python bytecode was compiled into the image
+
+To smoke test a fully baked ComfyUI image, export the exact ComfyUI filenames and enable the stricter mode:
+
+```bash
+export PRELOAD_COMFYUI_MODELS=true
+export COMFYUI_CKPT_NAME=your-checkpoint.safetensors
+export COMFYUI_MOTION_MODEL_NAME=your-motion-model.safetensors
+export COMFYUI_LORA_NAME=AnimateLCM_sd15_t2v_lora.safetensors
+bin/smoke_test_docker_image.sh
+```
+
+If the image is meant to fetch missing ComfyUI files at build time, also export the matching `*_SOURCE_REPO` and `*_SOURCE_FILENAME` values before running the smoke test.
+
+The smoke test also accepts `HF_TOKEN` or `HF_TOKEN_FILE`; it passes the token into `docker build` as a BuildKit secret instead of baking it into the image configuration.
+
 ## Local post-processing
 
 For video jobs, use the local script after the raw MP4 is available in S3:
@@ -182,6 +282,12 @@ Optional:
 - `RUNPOD_S3_PRESIGN=true` - return a presigned download URL instead of the deterministic public URL
 - `MODEL_CACHE_DIR`
 - `MIN_CACHE_FREE_GB` - minimum free space required in the model cache path before model download starts. Defaults to `12`.
+- `WORKER_BACKEND` or `VIDEO_BACKEND` - `diffusers` or `comfyui`
+- `COMFYUI_ROOT`, `COMFYUI_HOST`, `COMFYUI_PORT`
+- `COMFYUI_FORCE_FP16`
+- `COMFYUI_STARTUP_TIMEOUT_SECONDS`, `COMFYUI_JOB_TIMEOUT_SECONDS`, `COMFYUI_POLL_INTERVAL_SECONDS`
+- `COMFYUI_VIDEO_FORMAT`, `COMFYUI_VIDEO_PRESET`, `COMFYUI_VIDEO_CRF`, `COMFYUI_VIDEO_PIX_FMT`
+- `COMFYUI_CKPT_NAME`, `COMFYUI_MOTION_MODEL_NAME`, `COMFYUI_LORA_NAME`
 - `DEFAULT_MODEL_ID`
 - `DEFAULT_MOTION_ADAPTER_ID`
 - `DEFAULT_LORA_REPOSITORY`
@@ -205,3 +311,5 @@ This repo targets the queue-based RunPod Serverless worker model. The container 
 For strict sequential processing, configure the RunPod endpoint to use a single worker.
 
 For local testing inside this workspace, the worker also looks for environment variables in `.env` at the repo root and then `../clipflow/etc/.env` if those files exist. In standalone GitHub/RunPod deployment, set the same environment variables directly on the RunPod endpoint.
+
+If you enable `comfyui`, you should treat the current worker as a video-first backend. The direct diffusers path remains the safer fallback when ComfyUI models or custom nodes are not provisioned yet.
