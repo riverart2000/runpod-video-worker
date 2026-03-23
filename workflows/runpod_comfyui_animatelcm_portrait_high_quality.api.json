@@ -1,0 +1,122 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "v1-5-pruned-emaonly.safetensors"
+    }
+  },
+  "2": {
+    "class_type": "LoraLoader",
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "clip": [
+        "1",
+        1
+      ],
+      "lora_name": "lcm-lora-sdv1-5.safetensors",
+      "strength_model": 0.9,
+      "strength_clip": 1.0
+    }
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "2",
+        1
+      ],
+      "text": "cinematic portrait video of a confident presenter speaking to camera in a premium studio, subtle natural body motion, realistic face, natural blinking, clean skin detail, controlled lighting, shallow depth of field, documentary realism, high-end commercial production, stable framing"
+    }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "2",
+        1
+      ],
+      "text": "blurry, low quality, worst quality, low resolution, oversmoothed skin, distorted face, deformed eyes, bad anatomy, extra fingers, extra limbs, warped hands, jitter, flicker, frame inconsistency, ghosting, text, subtitles, watermark, logo"
+    }
+  },
+  "5": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": 720,
+      "height": 1280,
+      "batch_size": 49
+    }
+  },
+  "6": {
+    "class_type": "ADE_AnimateDiffLoaderGen1",
+    "inputs": {
+      "model": [
+        "2",
+        0
+      ],
+      "model_name": "mm_sd_v15_v2.ckpt",
+      "beta_schedule": "autoselect"
+    }
+  },
+  "7": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 123456789,
+      "steps": 16,
+      "cfg": 2.8,
+      "sampler_name": "lcm",
+      "scheduler": "normal",
+      "denoise": 1,
+      "model": [
+        "6",
+        0
+      ],
+      "positive": [
+        "3",
+        0
+      ],
+      "negative": [
+        "4",
+        0
+      ],
+      "latent_image": [
+        "5",
+        0
+      ]
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "7",
+        0
+      ],
+      "vae": [
+        "1",
+        2
+      ]
+    }
+  },
+  "9": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "images": [
+        "8",
+        0
+      ],
+      "frame_rate": 16,
+      "loop_count": 0,
+      "filename_prefix": "runpod/manual_portrait_scene_hq",
+      "format": "video/runpod_h264_mp4",
+      "pingpong": false,
+      "save_output": true,
+      "crf": 20,
+      "preset": "slow",
+      "pix_fmt": "yuv420p",
+      "save_metadata": false
+    }
+  }
+}

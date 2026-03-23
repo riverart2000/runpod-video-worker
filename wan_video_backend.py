@@ -9,6 +9,7 @@ from pathlib import Path
 import torch
 from diffusers import AutoencoderKLWan, UniPCMultistepScheduler, WanPipeline
 from diffusers.utils import export_to_video
+from runtime_cache import ensure_cache_has_free_space, resolve_runtime_cache_dir
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -41,14 +42,9 @@ def log_runtime(message: str) -> None:
 
 
 def resolve_cache_dir() -> Path:
-    configured = os.environ.get("MODEL_CACHE_DIR", "").strip()
-    if configured:
-        cache_dir = Path(configured)
-    elif Path("/runpod-volume").exists():
-        cache_dir = Path("/runpod-volume/hf-cache")
-    else:
-        cache_dir = ROOT_DIR / "models_cache"
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir = resolve_runtime_cache_dir()
+    minimum_free_gb = float(os.environ.get("MIN_CACHE_FREE_GB", "12"))
+    ensure_cache_has_free_space(cache_dir, minimum_free_gb, context="Wan model download")
     return cache_dir
 
 

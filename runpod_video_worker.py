@@ -18,6 +18,11 @@ import torch
 from diffusers import AnimateDiffPipeline, AutoencoderKL, LCMScheduler, MotionAdapter, StableDiffusionPipeline
 from diffusers.utils import export_to_video
 from PIL import Image, ImageOps
+from runtime_cache import (
+    bootstrap_huggingface_cache_env,
+    ensure_cache_has_free_space as ensure_runtime_cache_has_free_space,
+    resolve_runtime_cache_dir,
+)
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -43,23 +48,6 @@ def load_env_file(path: Path) -> None:
 
 for env_path in ENV_CANDIDATE_PATHS:
     load_env_file(env_path)
-
-
-def bootstrap_huggingface_cache_env() -> None:
-    configured = os.environ.get("MODEL_CACHE_DIR", "").strip()
-    if configured:
-        cache_dir = Path(configured)
-    elif Path("/runpod-volume").exists():
-        cache_dir = Path("/runpod-volume/hf-cache")
-    else:
-        cache_dir = ROOT_DIR / "models_cache"
-
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
-    os.environ.setdefault("HF_HOME", str(cache_dir))
-    os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(cache_dir))
-    os.environ.setdefault("TRANSFORMERS_CACHE", str(cache_dir))
-    os.environ.setdefault("DIFFUSERS_CACHE", str(cache_dir))
 
 
 bootstrap_huggingface_cache_env()
@@ -487,34 +475,13 @@ def render_image(job_id: str, job_spec: JobSpec, pipeline: StableDiffusionPipeli
 
 
 def resolve_cache_dir() -> Path:
-    configured = os.environ.get("MODEL_CACHE_DIR", "").strip()
-    if configured:
-        cache_dir = Path(configured)
-    elif Path("/runpod-volume").exists():
-        cache_dir = Path("/runpod-volume/hf-cache")
-    else:
-        cache_dir = ROOT_DIR / "models_cache"
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir = resolve_runtime_cache_dir()
     ensure_cache_has_free_space(cache_dir)
     return cache_dir
 
 
 def ensure_cache_has_free_space(cache_dir: Path) -> None:
-    try:
-        usage = shutil.disk_usage(cache_dir)
-    except OSError:
-        return
-
-    required_bytes = int(MIN_CACHE_FREE_GB * 1024 * 1024 * 1024)
-    if usage.free >= required_bytes:
-        return
-
-    free_gb = usage.free / (1024 * 1024 * 1024)
-    raise RuntimeError(
-        "Insufficient disk space for Hugging Face model download. "
-        f"Cache path '{cache_dir}' has only {free_gb:.2f} GB free, but at least {MIN_CACHE_FREE_GB:.0f} GB is recommended. "
-        "Mount a larger /runpod-volume or set MODEL_CACHE_DIR to a larger disk path."
-    )
+    ensure_runtime_cache_has_free_space(cache_dir, MIN_CACHE_FREE_GB)
 
 
 def stable_seed(job_id: str) -> int:
