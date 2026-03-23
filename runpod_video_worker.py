@@ -77,23 +77,23 @@ DEFAULT_NEGATIVE_PROMPT = os.environ.get(
     "DEFAULT_NEGATIVE_PROMPT",
     "blurry, low quality, distorted, flicker, jitter, warped anatomy, bad hands, text, watermark",
 )
-DEFAULT_NATIVE_WIDTH = int(os.environ.get("DEFAULT_NATIVE_WIDTH", "360"))
-DEFAULT_NATIVE_HEIGHT = int(os.environ.get("DEFAULT_NATIVE_HEIGHT", "640"))
+DEFAULT_NATIVE_WIDTH = int(os.environ.get("DEFAULT_NATIVE_WIDTH", "448"))
+DEFAULT_NATIVE_HEIGHT = int(os.environ.get("DEFAULT_NATIVE_HEIGHT", "768"))
 DEFAULT_OUTPUT_WIDTH = int(os.environ.get("DEFAULT_OUTPUT_WIDTH", "720"))
 DEFAULT_OUTPUT_HEIGHT = int(os.environ.get("DEFAULT_OUTPUT_HEIGHT", "1280"))
 DEFAULT_VIDEO_FRAMES = int(os.environ.get("DEFAULT_VIDEO_FRAMES", "16"))
 MAX_VIDEO_FRAMES = int(os.environ.get("MAX_VIDEO_FRAMES", "24"))
-DEFAULT_VIDEO_FPS = int(os.environ.get("DEFAULT_VIDEO_FPS", "6"))
+DEFAULT_VIDEO_FPS = int(os.environ.get("DEFAULT_VIDEO_FPS", "8"))
 DEFAULT_VIDEO_STEPS = int(os.environ.get("DEFAULT_STEPS", "8"))
 MAX_VIDEO_STEPS = int(os.environ.get("MAX_STEPS", "12"))
-DEFAULT_VIDEO_GUIDANCE_SCALE = float(os.environ.get("DEFAULT_GUIDANCE_SCALE", "1.8"))
+DEFAULT_VIDEO_GUIDANCE_SCALE = float(os.environ.get("DEFAULT_GUIDANCE_SCALE", "1.5"))
 DEFAULT_IMAGE_STEPS = int(os.environ.get("DEFAULT_IMAGE_STEPS", "20"))
 MAX_IMAGE_STEPS = int(os.environ.get("MAX_IMAGE_STEPS", "30"))
 DEFAULT_IMAGE_GUIDANCE_SCALE = float(os.environ.get("DEFAULT_IMAGE_GUIDANCE_SCALE", "7.0"))
 DEFAULT_MEDIA_TYPE = os.environ.get("DEFAULT_MEDIA_TYPE", "video").strip().lower() or "video"
-DEFAULT_LORA_SCALE = float(os.environ.get("DEFAULT_LORA_SCALE", "0.8"))
+DEFAULT_LORA_SCALE = float(os.environ.get("DEFAULT_LORA_SCALE", "0.9"))
 DEFAULT_SEED = int(os.environ.get("DEFAULT_SEED", "12345"))
-DEFAULT_DECODE_CHUNK_SIZE = int(os.environ.get("DEFAULT_DECODE_CHUNK_SIZE", "8"))
+DEFAULT_DECODE_CHUNK_SIZE = int(os.environ.get("DEFAULT_DECODE_CHUNK_SIZE", "12"))
 MIN_CACHE_FREE_GB = float(os.environ.get("MIN_CACHE_FREE_GB", "12"))
 DEFAULT_VIDEO_BACKEND = os.environ.get("VIDEO_BACKEND", os.environ.get("WORKER_BACKEND", "comfyui")).strip().lower() or "comfyui"
 

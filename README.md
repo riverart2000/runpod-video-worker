@@ -7,11 +7,11 @@ It now supports two video backends:
 - `diffusers` - the original direct Python pipeline path
 - `comfyui` - a ComfyUI + AnimateLCM + FP16 path for lower-overhead video orchestration
 
-The worker is built for small image size and fast inference:
+The worker is built for fast inference on a larger-card ComfyUI video path:
 
 - optional ComfyUI runtime with `ComfyUI-AnimateDiff-Evolved` and `ComfyUI-VideoHelperSuite`
 - one cached direct diffusers video pipeline and one cached image pipeline
-- low native render resolution by default
+- RTX 5090 oriented default native render resolution and step budget
 - raw/native video upload from the worker
 - final video formatting can still be handled locally after download if needed
 
@@ -30,11 +30,12 @@ The worker is built for small image size and fast inference:
 - Video LoRA: `AnimateLCM_sd15_t2v_lora.safetensors`
 - Image pipeline: `StableDiffusionPipeline` using the same base model family
 - ComfyUI video path: `CheckpointLoaderSimple` + `LoraLoader` + `ADE_AnimateDiffLoaderGen1` + `KSampler(lcm)` + `VHS_VideoCombine`
-- Default native render size: `360x640`
+- Default native render size: `448x768`
 - Default requested final size: `720x1280`
 - Default video frames: `16`
-- Default video fps: `6`
+- Default video fps: `8`
 - Default video steps: `8`
+- Default video guidance scale: `1.5`
 - Default image steps: `20`
 - Default image format: `png`
 
@@ -68,15 +69,15 @@ Video example:
 {
   "type": "video",
   "prompt": "cinematic slow motion shot of a lion walking at sunset",
-  "width": 360,
-  "height": 640,
+  "width": 448,
+  "height": 768,
   "output_width": 720,
   "output_height": 1280,
   "frames": 16,
-  "fps": 6,
+  "fps": 8,
   "negative_prompt": "blurry, low quality, distorted",
   "steps": 8,
-  "guidance_scale": 1.8,
+  "guidance_scale": 1.5,
   "seed": 12345
 }
 ```
@@ -87,8 +88,8 @@ Image example:
 {
   "type": "image",
   "prompt": "portrait of a fox in a misty forest at sunrise, cinematic lighting",
-  "width": 360,
-  "height": 640,
+  "width": 448,
+  "height": 768,
   "output_width": 720,
   "output_height": 1280,
   "steps": 20,
@@ -122,14 +123,14 @@ Video completion example:
   "model_id": "emilianJR/epiCRealism",
   "video_backend": "comfyui",
   "motion_adapter_id": "wangfuyun/AnimateLCM",
-  "native_width": 360,
-  "native_height": 640,
+  "native_width": 448,
+  "native_height": 768,
   "output_width": 720,
   "output_height": 1280,
   "frames": 16,
-  "fps": 6,
+  "fps": 8,
   "steps": 8,
-  "guidance_scale": 1.8,
+  "guidance_scale": 1.5,
   "seed": 12345,
   "s3_bucket": "revenuemindproai",
   "s3_key": "runpod_videos/rp-123456.mp4",
@@ -152,8 +153,8 @@ Image completion example:
   "job_id": "rp-7890",
   "media_type": "image",
   "model_id": "emilianJR/epiCRealism",
-  "native_width": 360,
-  "native_height": 640,
+  "native_width": 448,
+  "native_height": 768,
   "output_width": 720,
   "output_height": 1280,
   "frames": 1,
@@ -203,6 +204,16 @@ The worker submits a generated workflow equivalent to:
 8. assemble MP4 with `VHS_VideoCombine`
 
 FP16 is enabled for the ComfyUI server by default through `COMFYUI_FORCE_FP16=true`, which starts ComfyUI with `--force-fp16`.
+
+The baked defaults are now tuned for an RTX 5090 32GB class GPU:
+
+- native render size `448x768`
+- `16` default frames and `24` max frames
+- `8` default fps
+- `8` default steps and `12` max steps
+- `1.5` default CFG / guidance scale
+- `0.9` LoRA model strength inside the ComfyUI graph
+- metadata saving disabled during `VHS_VideoCombine`
 
 ## Build-time asset baking
 

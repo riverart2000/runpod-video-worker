@@ -37,6 +37,8 @@ COMFYUI_VIDEO_FORMAT = os.environ.get("COMFYUI_VIDEO_FORMAT", "video/runpod_h264
 COMFYUI_VIDEO_PRESET = os.environ.get("COMFYUI_VIDEO_PRESET", "veryfast").strip() or "veryfast"
 COMFYUI_VIDEO_CRF = int(os.environ.get("COMFYUI_VIDEO_CRF", "23"))
 COMFYUI_VIDEO_PIX_FMT = os.environ.get("COMFYUI_VIDEO_PIX_FMT", "yuv420p").strip() or "yuv420p"
+COMFYUI_LORA_STRENGTH_MODEL = float(os.environ.get("COMFYUI_LORA_STRENGTH_MODEL", "0.9"))
+COMFYUI_LORA_STRENGTH_CLIP = float(os.environ.get("COMFYUI_LORA_STRENGTH_CLIP", "1.0"))
 
 COMFYUI_CKPT_NAME = env_or_default("COMFYUI_CKPT_NAME", "v1-5-pruned-emaonly.safetensors")
 COMFYUI_MOTION_MODEL_NAME = env_or_default("COMFYUI_MOTION_MODEL_NAME", "mm_sd_v15_v2.ckpt")
@@ -215,8 +217,8 @@ def build_animatelcm_prompt(job_id: str, job_spec: ComfyVideoJobSpec) -> dict[st
                 "model": ["1", 0],
                 "clip": ["1", 1],
                 "lora_name": COMFYUI_LORA_NAME,
-                "strength_model": 1.0,
-                "strength_clip": 1.0,
+                "strength_model": COMFYUI_LORA_STRENGTH_MODEL,
+                "strength_clip": COMFYUI_LORA_STRENGTH_CLIP,
             },
         },
         "3": {
@@ -284,7 +286,7 @@ def build_animatelcm_prompt(job_id: str, job_spec: ComfyVideoJobSpec) -> dict[st
                 "crf": COMFYUI_VIDEO_CRF,
                 "preset": COMFYUI_VIDEO_PRESET,
                 "pix_fmt": COMFYUI_VIDEO_PIX_FMT,
-                "save_metadata": True,
+                "save_metadata": False,
             },
         },
     }
