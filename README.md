@@ -48,7 +48,7 @@ For GitHub-to-RunPod remote builds, the default image path now keeps all model p
 
 When the `wan` backend is enabled, the worker loads a cached `WanPipeline` directly in Python and renders clips without ComfyUI. When the `comfyui` backend is enabled, ComfyUI is started headlessly inside the worker container and the worker submits a generated AnimateLCM workflow to the local ComfyUI API.
 
-For RunPod deployment, use a persistent volume when possible. The worker now prefers `/runpod-volume/hf-cache` over the baked `/opt/models/hf-cache` path whenever `/runpod-volume` is mounted, unless you explicitly set `MODEL_CACHE_DIR` to something else. It also disables the Hugging Face Xet download path and checks free space in the cache directory before loading models so low-disk failures are clearer.
+For RunPod deployment, use a persistent volume when possible. The worker now prefers `/runpod-volume/hf-cache` over the baked `/opt/models/hf-cache` path whenever `/runpod-volume` is mounted, unless you explicitly set `MODEL_CACHE_DIR` to something else. It also moves RunPod SDK job-state files and temporary render outputs onto `/runpod-volume` when available, and checks free space in the cache directory before loading models so low-disk failures are clearer.
 
 ## Files
 

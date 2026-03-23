@@ -1,3 +1,8 @@
+from runtime_cache import bootstrap_runtime_dirs
+
+
+bootstrap_runtime_dirs()
+
 import runpod
 
 from runpod_video_worker import process_runpod_job

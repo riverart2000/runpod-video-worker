@@ -22,6 +22,7 @@ from runtime_cache import (
     bootstrap_huggingface_cache_env,
     ensure_cache_has_free_space as ensure_runtime_cache_has_free_space,
     resolve_runtime_cache_dir,
+    resolve_runtime_tmp_dir,
 )
 
 
@@ -378,7 +379,7 @@ def move_pipeline_to_device(pipeline: Any, use_cuda: bool) -> None:
 def render_video(job_id: str, job_spec: JobSpec, pipeline: AnimateDiffPipeline) -> Path:
     use_cuda = torch.cuda.is_available()
     generator = torch.Generator(device=("cuda" if use_cuda else "cpu")).manual_seed(job_spec.seed)
-    temp_dir = Path(tempfile.mkdtemp(prefix=f"runpod-video-{job_id}-", dir=str(ROOT_DIR)))
+    temp_dir = Path(tempfile.mkdtemp(prefix=f"runpod-video-{job_id}-", dir=str(resolve_runtime_tmp_dir())))
     output_video_path = temp_dir / f"{job_id}.mp4"
 
     try:
@@ -449,7 +450,7 @@ def resolve_video_backend(job_input: dict[str, Any], media_type: str) -> str:
 def render_image(job_id: str, job_spec: JobSpec, pipeline: StableDiffusionPipeline) -> Path:
     use_cuda = torch.cuda.is_available()
     generator = torch.Generator(device=("cuda" if use_cuda else "cpu")).manual_seed(job_spec.seed)
-    temp_dir = Path(tempfile.mkdtemp(prefix=f"runpod-image-{job_id}-", dir=str(ROOT_DIR)))
+    temp_dir = Path(tempfile.mkdtemp(prefix=f"runpod-image-{job_id}-", dir=str(resolve_runtime_tmp_dir())))
     output_image_path = temp_dir / f"{job_id}.{job_spec.image_format}"
 
     try:

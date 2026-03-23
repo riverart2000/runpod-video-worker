@@ -9,7 +9,7 @@ from pathlib import Path
 import torch
 from diffusers import AutoencoderKLWan, UniPCMultistepScheduler, WanPipeline
 from diffusers.utils import export_to_video
-from runtime_cache import ensure_cache_has_free_space, resolve_runtime_cache_dir
+from runtime_cache import ensure_cache_has_free_space, resolve_runtime_cache_dir, resolve_runtime_tmp_dir
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -105,7 +105,7 @@ def clear_cuda_cache() -> None:
 
 def render_video_with_wan(job_id: str, job_spec: WanVideoJobSpec) -> Path:
     pipeline = get_video_pipeline()
-    temp_dir = Path(tempfile.mkdtemp(prefix=f"runpod-wan-video-{job_id}-", dir=str(ROOT_DIR)))
+    temp_dir = Path(tempfile.mkdtemp(prefix=f"runpod-wan-video-{job_id}-", dir=str(resolve_runtime_tmp_dir())))
     output_video_path = temp_dir / f"{job_id}.mp4"
 
     generator_device = "cuda" if torch.cuda.is_available() else "cpu"
