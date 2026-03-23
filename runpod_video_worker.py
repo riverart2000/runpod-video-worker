@@ -65,6 +65,7 @@ def bootstrap_huggingface_cache_env() -> None:
 bootstrap_huggingface_cache_env()
 
 from comfyui_backend import ComfyVideoJobSpec, render_video_with_comfyui
+from wan_video_backend import WanVideoJobSpec, render_video_with_wan
 
 
 DELETE_LOCAL_OUTPUT_AFTER_UPLOAD = os.environ.get("DELETE_LOCAL_OUTPUT_AFTER_UPLOAD", "true").strip().lower() not in {"0", "false", "no", "off"}
@@ -75,18 +76,18 @@ DEFAULT_LORA_WEIGHT_NAME = os.environ.get("DEFAULT_LORA_WEIGHT_NAME", "AnimateLC
 DEFAULT_VAE_ID = os.environ.get("DEFAULT_VAE_ID", "stabilityai/sd-vae-ft-mse")
 DEFAULT_NEGATIVE_PROMPT = os.environ.get(
     "DEFAULT_NEGATIVE_PROMPT",
-    "blurry, low quality, distorted, flicker, jitter, warped anatomy, bad hands, text, watermark",
+    "bright tones, overexposed, static, blurred details, subtitles, text overlays, watermark, paintings, illustrations, still picture, overall gray, worst quality, low quality, jpeg artifacts, ugly, deformed, disfigured, distorted anatomy, fused fingers, poorly drawn hands, poorly drawn faces, messy background, duplicate subjects, extra limbs",
 )
-DEFAULT_NATIVE_WIDTH = int(os.environ.get("DEFAULT_NATIVE_WIDTH", "448"))
-DEFAULT_NATIVE_HEIGHT = int(os.environ.get("DEFAULT_NATIVE_HEIGHT", "768"))
+DEFAULT_NATIVE_WIDTH = int(os.environ.get("DEFAULT_NATIVE_WIDTH", "720"))
+DEFAULT_NATIVE_HEIGHT = int(os.environ.get("DEFAULT_NATIVE_HEIGHT", "1280"))
 DEFAULT_OUTPUT_WIDTH = int(os.environ.get("DEFAULT_OUTPUT_WIDTH", "720"))
 DEFAULT_OUTPUT_HEIGHT = int(os.environ.get("DEFAULT_OUTPUT_HEIGHT", "1280"))
-DEFAULT_VIDEO_FRAMES = int(os.environ.get("DEFAULT_VIDEO_FRAMES", "16"))
-MAX_VIDEO_FRAMES = int(os.environ.get("MAX_VIDEO_FRAMES", "24"))
-DEFAULT_VIDEO_FPS = int(os.environ.get("DEFAULT_VIDEO_FPS", "8"))
-DEFAULT_VIDEO_STEPS = int(os.environ.get("DEFAULT_STEPS", "8"))
-MAX_VIDEO_STEPS = int(os.environ.get("MAX_STEPS", "12"))
-DEFAULT_VIDEO_GUIDANCE_SCALE = float(os.environ.get("DEFAULT_GUIDANCE_SCALE", "1.5"))
+DEFAULT_VIDEO_FRAMES = int(os.environ.get("DEFAULT_VIDEO_FRAMES", "49"))
+MAX_VIDEO_FRAMES = int(os.environ.get("MAX_VIDEO_FRAMES", "81"))
+DEFAULT_VIDEO_FPS = int(os.environ.get("DEFAULT_VIDEO_FPS", "16"))
+DEFAULT_VIDEO_STEPS = int(os.environ.get("DEFAULT_STEPS", "30"))
+MAX_VIDEO_STEPS = int(os.environ.get("MAX_STEPS", "40"))
+DEFAULT_VIDEO_GUIDANCE_SCALE = float(os.environ.get("DEFAULT_GUIDANCE_SCALE", "5.0"))
 DEFAULT_IMAGE_STEPS = int(os.environ.get("DEFAULT_IMAGE_STEPS", "20"))
 MAX_IMAGE_STEPS = int(os.environ.get("MAX_IMAGE_STEPS", "30"))
 DEFAULT_IMAGE_GUIDANCE_SCALE = float(os.environ.get("DEFAULT_IMAGE_GUIDANCE_SCALE", "7.0"))
@@ -95,7 +96,7 @@ DEFAULT_LORA_SCALE = float(os.environ.get("DEFAULT_LORA_SCALE", "0.9"))
 DEFAULT_SEED = int(os.environ.get("DEFAULT_SEED", "12345"))
 DEFAULT_DECODE_CHUNK_SIZE = int(os.environ.get("DEFAULT_DECODE_CHUNK_SIZE", "12"))
 MIN_CACHE_FREE_GB = float(os.environ.get("MIN_CACHE_FREE_GB", "12"))
-DEFAULT_VIDEO_BACKEND = os.environ.get("VIDEO_BACKEND", os.environ.get("WORKER_BACKEND", "comfyui")).strip().lower() or "comfyui"
+DEFAULT_VIDEO_BACKEND = os.environ.get("VIDEO_BACKEND", os.environ.get("WORKER_BACKEND", "wan")).strip().lower() or "wan"
 
 PIPELINE_LOCK = threading.Lock()
 JOB_LOCK = threading.Lock()
@@ -415,6 +416,21 @@ def render_video(job_id: str, job_spec: JobSpec, pipeline: AnimateDiffPipeline) 
 
 
 def render_video_for_backend(job_id: str, job_spec: JobSpec, backend: str) -> Path:
+    if backend == "wan":
+        return render_video_with_wan(
+            job_id,
+            WanVideoJobSpec(
+                prompt=job_spec.prompt,
+                negative_prompt=job_spec.negative_prompt,
+                native_width=job_spec.native_width,
+                native_height=job_spec.native_height,
+                frames=job_spec.frames,
+                fps=job_spec.fps,
+                steps=job_spec.steps,
+                guidance_scale=job_spec.guidance_scale,
+                seed=job_spec.seed,
+            ),
+        )
     if backend == "comfyui":
         return render_video_with_comfyui(
             job_id,
@@ -437,8 +453,8 @@ def resolve_video_backend(job_input: dict[str, Any], media_type: str) -> str:
     if media_type != "video":
         return "diffusers"
     backend = str(job_input.get("backend") or job_input.get("video_backend") or DEFAULT_VIDEO_BACKEND).strip().lower()
-    if backend not in {"diffusers", "comfyui"}:
-        raise ValueError("input.backend must be either 'diffusers' or 'comfyui'.")
+    if backend not in {"diffusers", "comfyui", "wan"}:
+        raise ValueError("input.backend must be one of 'wan', 'diffusers', or 'comfyui'.")
     return backend
 
 

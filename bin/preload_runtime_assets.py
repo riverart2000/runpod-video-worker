@@ -28,6 +28,7 @@ DEFAULT_MOTION_ADAPTER_ID = env_or_default("DEFAULT_MOTION_ADAPTER_ID", "wangfuy
 DEFAULT_LORA_REPOSITORY = env_or_default("DEFAULT_LORA_REPOSITORY", DEFAULT_MOTION_ADAPTER_ID)
 DEFAULT_LORA_WEIGHT_NAME = env_or_default("DEFAULT_LORA_WEIGHT_NAME", "AnimateLCM_sd15_t2v_lora.safetensors")
 DEFAULT_VAE_ID = env_or_default("DEFAULT_VAE_ID", "stabilityai/sd-vae-ft-mse")
+WAN_MODEL_ID = env_or_default("WAN_MODEL_ID", "Wan-AI/Wan2.1-T2V-14B-Diffusers")
 
 COMFYUI_CKPT_NAME = env_or_default("COMFYUI_CKPT_NAME", "v1-5-pruned-emaonly.safetensors")
 COMFYUI_MOTION_MODEL_NAME = env_or_default("COMFYUI_MOTION_MODEL_NAME", "mm_sd_v15_v2.ckpt")
@@ -107,6 +108,18 @@ def preload_diffusers_assets() -> None:
     )
 
 
+def preload_wan_assets() -> None:
+    token = resolve_hf_token()
+    log(f"preloading_wan model={WAN_MODEL_ID}")
+    snapshot_download(
+        repo_id=WAN_MODEL_ID,
+        cache_dir=str(MODEL_CACHE_DIR),
+        token=token,
+        local_dir_use_symlinks=False,
+        resume_download=True,
+    )
+
+
 def maybe_download_comfyui_model(target_subdir: str, target_name: str, source_repo: str, source_filename: str) -> None:
     token = resolve_hf_token()
     if not target_name:
@@ -178,6 +191,11 @@ def main() -> None:
         preload_diffusers_assets()
     else:
         log("skipping_diffusers_preload")
+
+    if env_flag("PRELOAD_WAN_MODELS", True):
+        preload_wan_assets()
+    else:
+        log("skipping_wan_preload")
 
     if env_flag("PRELOAD_COMFYUI_MODELS", True):
         preload_comfyui_assets()
