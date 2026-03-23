@@ -229,6 +229,12 @@ Useful Docker build args:
 
 For the fastest worker startup, put the exact ComfyUI files you want under `docker-assets/comfyui-models/` before building the image. That avoids any model download during container boot.
 
+Current known public source mappings used in the repo examples:
+
+- checkpoint: `Syimbiote/v1-5-pruned-emaonly` / `v1-5-pruned-emaonly.safetensors`
+- motion model: `guoyww/animatediff` / `mm_sd_v15_v2.ckpt`
+- LoRA: `latent-consistency/lcm-lora-sdv1-5` / `pytorch_lora_weights.safetensors`
+
 ## Image smoke test
 
 Use the repo-local smoke test to verify that the image builds and contains the expected runtime pieces:
@@ -312,4 +318,6 @@ For strict sequential processing, configure the RunPod endpoint to use a single 
 
 For local testing inside this workspace, the worker also looks for environment variables in `.env` at the repo root and then `../clipflow/etc/.env` if those files exist. In standalone GitHub/RunPod deployment, set the same environment variables directly on the RunPod endpoint.
 
-If you enable `comfyui`, you should treat the current worker as a video-first backend. The direct diffusers path remains the safer fallback when ComfyUI models or custom nodes are not provisioned yet.
+This image now bakes the non-secret 3090-target runtime defaults directly into the Dockerfile, including the ComfyUI backend selection, ComfyUI model filenames, source mappings, host/port, and S3 base URL. A RunPod deployment should therefore not need endpoint-level configuration for those non-secret values.
+
+The remaining runtime inputs that still must come from RunPod secrets or another secure secret source are credential-like values such as `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and any optional gated Hugging Face token.

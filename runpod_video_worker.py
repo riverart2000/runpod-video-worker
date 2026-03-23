@@ -95,7 +95,7 @@ DEFAULT_LORA_SCALE = float(os.environ.get("DEFAULT_LORA_SCALE", "0.8"))
 DEFAULT_SEED = int(os.environ.get("DEFAULT_SEED", "12345"))
 DEFAULT_DECODE_CHUNK_SIZE = int(os.environ.get("DEFAULT_DECODE_CHUNK_SIZE", "8"))
 MIN_CACHE_FREE_GB = float(os.environ.get("MIN_CACHE_FREE_GB", "12"))
-DEFAULT_VIDEO_BACKEND = os.environ.get("VIDEO_BACKEND", os.environ.get("WORKER_BACKEND", "diffusers")).strip().lower() or "diffusers"
+DEFAULT_VIDEO_BACKEND = os.environ.get("VIDEO_BACKEND", os.environ.get("WORKER_BACKEND", "comfyui")).strip().lower() or "comfyui"
 
 PIPELINE_LOCK = threading.Lock()
 JOB_LOCK = threading.Lock()

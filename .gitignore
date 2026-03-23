@@ -9,3 +9,5 @@ output/
 temp/
 logs/
 models_cache/
+docker-assets/comfyui-models/
+!docker-assets/comfyui-models/.gitkeep

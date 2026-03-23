@@ -19,9 +19,9 @@ DEFAULT_LORA_REPOSITORY = os.environ.get("DEFAULT_LORA_REPOSITORY", DEFAULT_MOTI
 DEFAULT_LORA_WEIGHT_NAME = os.environ.get("DEFAULT_LORA_WEIGHT_NAME", "AnimateLCM_sd15_t2v_lora.safetensors").strip()
 DEFAULT_VAE_ID = os.environ.get("DEFAULT_VAE_ID", "stabilityai/sd-vae-ft-mse").strip()
 
-COMFYUI_CKPT_NAME = os.environ.get("COMFYUI_CKPT_NAME", "").strip()
-COMFYUI_MOTION_MODEL_NAME = os.environ.get("COMFYUI_MOTION_MODEL_NAME", "").strip()
-COMFYUI_LORA_NAME = os.environ.get("COMFYUI_LORA_NAME", "").strip()
+COMFYUI_CKPT_NAME = os.environ.get("COMFYUI_CKPT_NAME", "v1-5-pruned-emaonly.safetensors").strip()
+COMFYUI_MOTION_MODEL_NAME = os.environ.get("COMFYUI_MOTION_MODEL_NAME", "mm_sd_v15_v2.ckpt").strip()
+COMFYUI_LORA_NAME = os.environ.get("COMFYUI_LORA_NAME", "lcm-lora-sdv1-5.safetensors").strip()
 
 
 def env_flag(name: str, default: bool) -> bool:
@@ -143,20 +143,20 @@ def preload_comfyui_assets() -> None:
     maybe_download_comfyui_model(
         "checkpoints",
         COMFYUI_CKPT_NAME,
-        os.environ.get("COMFYUI_CKPT_SOURCE_REPO", "").strip(),
-        os.environ.get("COMFYUI_CKPT_SOURCE_FILENAME", "").strip(),
+        os.environ.get("COMFYUI_CKPT_SOURCE_REPO", "Syimbiote/v1-5-pruned-emaonly").strip(),
+        os.environ.get("COMFYUI_CKPT_SOURCE_FILENAME", "v1-5-pruned-emaonly.safetensors").strip(),
     )
     maybe_download_comfyui_model(
         "animatediff_models",
         COMFYUI_MOTION_MODEL_NAME,
-        os.environ.get("COMFYUI_MOTION_MODEL_SOURCE_REPO", "").strip(),
-        os.environ.get("COMFYUI_MOTION_MODEL_SOURCE_FILENAME", "").strip(),
+        os.environ.get("COMFYUI_MOTION_MODEL_SOURCE_REPO", "guoyww/animatediff").strip(),
+        os.environ.get("COMFYUI_MOTION_MODEL_SOURCE_FILENAME", "mm_sd_v15_v2.ckpt").strip(),
     )
     maybe_download_comfyui_model(
         "loras",
         COMFYUI_LORA_NAME,
-        os.environ.get("COMFYUI_LORA_SOURCE_REPO", "").strip(),
-        os.environ.get("COMFYUI_LORA_SOURCE_FILENAME", "").strip(),
+        os.environ.get("COMFYUI_LORA_SOURCE_REPO", "latent-consistency/lcm-lora-sdv1-5").strip(),
+        os.environ.get("COMFYUI_LORA_SOURCE_FILENAME", "pytorch_lora_weights.safetensors").strip(),
     )
 
 

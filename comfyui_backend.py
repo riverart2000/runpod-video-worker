@@ -28,9 +28,9 @@ COMFYUI_VIDEO_PRESET = os.environ.get("COMFYUI_VIDEO_PRESET", "veryfast").strip(
 COMFYUI_VIDEO_CRF = int(os.environ.get("COMFYUI_VIDEO_CRF", "23"))
 COMFYUI_VIDEO_PIX_FMT = os.environ.get("COMFYUI_VIDEO_PIX_FMT", "yuv420p").strip() or "yuv420p"
 
-COMFYUI_CKPT_NAME = os.environ.get("COMFYUI_CKPT_NAME", "").strip()
-COMFYUI_MOTION_MODEL_NAME = os.environ.get("COMFYUI_MOTION_MODEL_NAME", "").strip()
-COMFYUI_LORA_NAME = os.environ.get("COMFYUI_LORA_NAME", "").strip()
+COMFYUI_CKPT_NAME = os.environ.get("COMFYUI_CKPT_NAME", "v1-5-pruned-emaonly.safetensors").strip()
+COMFYUI_MOTION_MODEL_NAME = os.environ.get("COMFYUI_MOTION_MODEL_NAME", "mm_sd_v15_v2.ckpt").strip()
+COMFYUI_LORA_NAME = os.environ.get("COMFYUI_LORA_NAME", "lcm-lora-sdv1-5.safetensors").strip()
 
 SERVER_LOCK = threading.Lock()
 SERVER_PROCESS: subprocess.Popen[str] | None = None
