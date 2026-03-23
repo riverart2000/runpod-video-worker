@@ -157,6 +157,19 @@ def queue_prompt(prompt: dict[str, Any]) -> str:
     return prompt_id
 
 
+def extract_status_string(payload: Any) -> str:
+    if isinstance(payload, dict):
+        status = payload.get("status")
+        if isinstance(status, dict):
+            return str(status.get("status_str") or status.get("status") or "").lower()
+        if isinstance(status, str):
+            return status.lower()
+        return str(payload.get("status_str") or "").lower()
+    if isinstance(payload, str):
+        return payload.lower()
+    return ""
+
+
 def wait_for_history(prompt_id: str) -> dict[str, Any]:
     started_at = time.monotonic()
     history_url = f"http://{COMFYUI_HOST}:{COMFYUI_PORT}/history/{urllib.parse.quote(prompt_id)}"
@@ -166,14 +179,14 @@ def wait_for_history(prompt_id: str) -> dict[str, Any]:
         history = request_json("GET", history_url)
         entry = history.get(prompt_id)
         if entry:
-            status = (((entry.get("status") or {}).get("status_str")) or "").lower()
+            status = extract_status_string(entry)
             if status == "error":
                 raise RuntimeError(f"ComfyUI prompt {prompt_id} failed: {json.dumps(entry, ensure_ascii=True)}")
             return entry
 
         try:
             job_info = request_json("GET", job_url)
-            status = str(((job_info.get("status") or {}).get("status_str")) or "").lower()
+            status = extract_status_string(job_info)
             if status == "error":
                 raise RuntimeError(f"ComfyUI prompt {prompt_id} failed while queued: {json.dumps(job_info, ensure_ascii=True)}")
         except urllib.error.HTTPError as error:
