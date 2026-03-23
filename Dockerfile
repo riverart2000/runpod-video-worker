@@ -4,9 +4,9 @@ FROM python:3.11-slim-bookworm
 ARG COMFYUI_REF=master
 ARG COMFYUI_ANIMATEDIFF_REF=main
 ARG COMFYUI_VHS_REF=main
-ARG PRELOAD_DIFFUSERS_MODELS=true
-ARG PRELOAD_WAN_MODELS=true
-ARG PRELOAD_COMFYUI_MODELS=true
+ARG PRELOAD_DIFFUSERS_MODELS=false
+ARG PRELOAD_WAN_MODELS=false
+ARG PRELOAD_COMFYUI_MODELS=false
 ARG COMFYUI_CKPT_NAME=v1-5-pruned-emaonly.safetensors
 ARG COMFYUI_MOTION_MODEL_NAME=mm_sd_v15_v2.ckpt
 ARG COMFYUI_LORA_NAME=lcm-lora-sdv1-5.safetensors
@@ -106,6 +106,6 @@ RUN --mount=type=secret,id=hf_token,required=false \
     /opt/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite/video_formats && \
     cp /worker/workflows/comfyui_video_formats/runpod_h264_mp4.json /opt/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite/video_formats/runpod_h264_mp4.json && \
     python /worker/bin/preload_runtime_assets.py && \
-    python -m compileall -q -j 0 /worker /opt/ComfyUI /usr/local/lib/python3.11/site-packages
+    python -m compileall -q -j 0 /worker /opt/ComfyUI
 
 CMD ["python", "handler.py"]

@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE_TAG="${IMAGE_TAG:-runpod-video-worker:smoke}"
 PRELOAD_DIFFUSERS_MODELS="${PRELOAD_DIFFUSERS_MODELS:-false}"
+PRELOAD_WAN_MODELS="${PRELOAD_WAN_MODELS:-false}"
 PRELOAD_COMFYUI_MODELS="${PRELOAD_COMFYUI_MODELS:-false}"
 SECRET_ARGS=()
 
@@ -30,6 +31,7 @@ fi
 
 docker_build_cmd+=(
     --build-arg PRELOAD_DIFFUSERS_MODELS="$PRELOAD_DIFFUSERS_MODELS"
+    --build-arg PRELOAD_WAN_MODELS="$PRELOAD_WAN_MODELS"
     --build-arg PRELOAD_COMFYUI_MODELS="$PRELOAD_COMFYUI_MODELS"
     .
 )
@@ -56,6 +58,7 @@ done
 "${docker_build_cmd[@]}"
 
 docker run --rm \
+    -e PRELOAD_WAN_MODELS="$PRELOAD_WAN_MODELS" \
   -e PRELOAD_COMFYUI_MODELS="$PRELOAD_COMFYUI_MODELS" \
   -e COMFYUI_CKPT_NAME="${COMFYUI_CKPT_NAME:-}" \
   -e COMFYUI_MOTION_MODEL_NAME="${COMFYUI_MOTION_MODEL_NAME:-}" \
@@ -67,6 +70,7 @@ from pathlib import Path
 
 import comfyui_backend
 import runpod_video_worker
+import wan_video_backend
 
 required_paths = [
     Path("/opt/ComfyUI/main.py"),
@@ -76,6 +80,7 @@ required_paths = [
     Path("/worker/handler.py"),
     Path("/worker/runpod_video_worker.py"),
     Path("/worker/comfyui_backend.py"),
+    Path("/worker/wan_video_backend.py"),
 ]
 
 missing = [str(path) for path in required_paths if not path.exists()]
@@ -85,6 +90,11 @@ if missing:
 compiled = list(Path("/worker").rglob("*.pyc"))
 if not compiled:
     raise SystemExit("expected compiled Python bytecode under /worker")
+
+if os.environ.get("PRELOAD_WAN_MODELS", "false").lower() not in {"0", "false", "no", "off"}:
+    wan_cache_root = Path(os.environ.get("MODEL_CACHE_DIR", "/opt/models/hf-cache"))
+    if not wan_cache_root.exists() or not any(wan_cache_root.rglob("*Wan*")):
+        raise SystemExit(f"expected baked Wan model assets under {wan_cache_root}")
 
 if os.environ.get("PRELOAD_COMFYUI_MODELS", "false").lower() not in {"0", "false", "no", "off"}:
     expected_files = [

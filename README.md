@@ -44,6 +44,8 @@ The worker is built around a quality-first Wan text-to-video path for larger GPU
 
 The Docker image is now designed to bake runtime assets in during image build. By default it uses `/opt/models/hf-cache` as the baked Hugging Face cache inside the image, so the worker can start without re-downloading the default diffusers stack.
 
+For GitHub-to-RunPod remote builds, the default image path now keeps all model preload flags disabled. This is intentional: large baked model layers can push the remote build over RunPod's 30 minute build limit even if the Python code is correct.
+
 When the `wan` backend is enabled, the worker loads a cached `WanPipeline` directly in Python and renders clips without ComfyUI. When the `comfyui` backend is enabled, ComfyUI is started headlessly inside the worker container and the worker submits a generated AnimateLCM workflow to the local ComfyUI API.
 
 For RunPod deployment, use a persistent volume when possible. The worker now disables the Hugging Face Xet download path and checks free space in the cache directory before loading models so low-disk failures are clearer.
@@ -220,6 +222,19 @@ The baked defaults are now tuned for an RTX 5090 32GB class GPU using the Wan ba
 
 ## Build-time asset baking
 
+Remote build default:
+
+- `PRELOAD_DIFFUSERS_MODELS=false`
+- `PRELOAD_WAN_MODELS=false`
+- `PRELOAD_COMFYUI_MODELS=false`
+
+Use those defaults for GitHub-triggered RunPod builds unless you are certain the baked image can still be exported within the provider's build time limit.
+
+Local strict bake:
+
+- enable the preload flags only when you are intentionally validating or producing a locally baked image
+- this is appropriate for local Docker builds, not for the constrained remote builder
+
 The Docker build now shifts as much cold-start work as possible into the image build:
 
 1. clones ComfyUI and required custom nodes during build
@@ -260,10 +275,19 @@ bin/smoke_test_docker_image.sh
 By default it runs the fastest validation mode with both preload paths disabled, which verifies:
 
 - the image builds successfully
+- the Wan backend module imports successfully inside the container
 - ComfyUI and custom nodes are present
 - the repo-owned video format file is present
 - worker modules import correctly inside the container
 - Python bytecode was compiled into the image
+
+For the fastest local build validation after code changes, keep all preload paths disabled:
+
+```bash
+PRELOAD_DIFFUSERS_MODELS=false PRELOAD_WAN_MODELS=false PRELOAD_COMFYUI_MODELS=false bin/smoke_test_docker_image.sh
+```
+
+That path is the best way to catch Python, pip, Dockerfile, and import-level breakage without waiting for the full baked-model build.
 
 To smoke test a fully baked ComfyUI image, export the exact ComfyUI filenames and enable the stricter mode:
 
@@ -278,6 +302,12 @@ bin/smoke_test_docker_image.sh
 If the image is meant to fetch missing ComfyUI files at build time, also export the matching `*_SOURCE_REPO` and `*_SOURCE_FILENAME` values before running the smoke test.
 
 The smoke test also accepts `HF_TOKEN` or `HF_TOKEN_FILE`; it passes the token into `docker build` as a BuildKit secret instead of baking it into the image configuration.
+
+To validate the baked Wan path specifically, enable Wan preload as well:
+
+```bash
+PRELOAD_WAN_MODELS=true PRELOAD_COMFYUI_MODELS=false PRELOAD_DIFFUSERS_MODELS=false bin/smoke_test_docker_image.sh
+```
 
 ## Local post-processing
 
@@ -302,7 +332,7 @@ Optional:
 - `RUNPOD_S3_PRESIGN=true` - return a presigned download URL instead of the deterministic public URL
 - `MODEL_CACHE_DIR`
 - `MIN_CACHE_FREE_GB` - minimum free space required in the model cache path before model download starts. Defaults to `12`.
-- `WORKER_BACKEND` or `VIDEO_BACKEND` - `diffusers` or `comfyui`
+- `WORKER_BACKEND` or `VIDEO_BACKEND` - `wan`, `diffusers`, or `comfyui`
 - `COMFYUI_ROOT`, `COMFYUI_HOST`, `COMFYUI_PORT`
 - `COMFYUI_FORCE_FP16`
 - `COMFYUI_STARTUP_TIMEOUT_SECONDS`, `COMFYUI_JOB_TIMEOUT_SECONDS`, `COMFYUI_POLL_INTERVAL_SECONDS`
