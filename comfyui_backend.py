@@ -10,9 +10,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from runtime_cache import resolve_runtime_tmp_dir
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -46,6 +49,10 @@ COMFYUI_LORA_NAME = env_or_default("COMFYUI_LORA_NAME", "lcm-lora-sdv1-5.safeten
 
 SERVER_LOCK = threading.Lock()
 SERVER_PROCESS: subprocess.Popen[str] | None = None
+SERVER_STDOUT_HANDLE: Any | None = None
+SERVER_STDERR_HANDLE: Any | None = None
+SERVER_STDOUT_PATH: Path | None = None
+SERVER_STDERR_PATH: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -63,6 +70,49 @@ class ComfyVideoJobSpec:
 
 def log_runtime(message: str) -> None:
     print(f"[runpod-video-worker][comfyui] {message}", flush=True)
+
+
+def close_server_log_handles() -> None:
+    global SERVER_STDOUT_HANDLE, SERVER_STDERR_HANDLE
+
+    for handle_name in ("SERVER_STDOUT_HANDLE", "SERVER_STDERR_HANDLE"):
+        handle = globals().get(handle_name)
+        if handle is None:
+            continue
+        try:
+            handle.close()
+        except Exception:
+            pass
+        globals()[handle_name] = None
+
+
+def read_log_tail(path: Path | None, max_lines: int = 80) -> str:
+    if path is None or not path.exists():
+        return ""
+
+    lines: deque[str] = deque(maxlen=max_lines)
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                lines.append(line.rstrip())
+    except OSError:
+        return ""
+    return "\n".join(lines)
+
+
+def describe_server_exit(exit_code: int | None) -> str:
+    stderr_tail = read_log_tail(SERVER_STDERR_PATH)
+    stdout_tail = read_log_tail(SERVER_STDOUT_PATH)
+    details: list[str] = [f"ComfyUI server exited before becoming ready with code {exit_code}."]
+    if SERVER_STDERR_PATH is not None:
+        details.append(f"stderr_log={SERVER_STDERR_PATH}")
+    if stderr_tail:
+        details.append(f"stderr_tail:\n{stderr_tail}")
+    if SERVER_STDOUT_PATH is not None:
+        details.append(f"stdout_log={SERVER_STDOUT_PATH}")
+    if stdout_tail:
+        details.append(f"stdout_tail:\n{stdout_tail}")
+    return "\n".join(details)
 
 
 def require_comfyui_configuration() -> None:
@@ -92,6 +142,7 @@ def render_video_with_comfyui(job_id: str, job_spec: ComfyVideoJobSpec) -> Path:
 
 def ensure_comfyui_server() -> None:
     global SERVER_PROCESS
+    global SERVER_STDOUT_HANDLE, SERVER_STDERR_HANDLE, SERVER_STDOUT_PATH, SERVER_STDERR_PATH
 
     with SERVER_LOCK:
         if SERVER_PROCESS is not None and SERVER_PROCESS.poll() is None and comfyui_server_ready():
@@ -112,12 +163,20 @@ def ensure_comfyui_server() -> None:
         if COMFYUI_FORCE_FP16:
             command.append("--force-fp16")
 
+        log_dir = resolve_runtime_tmp_dir() / "comfyui-logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        SERVER_STDOUT_PATH = log_dir / "server.stdout.log"
+        SERVER_STDERR_PATH = log_dir / "server.stderr.log"
+        close_server_log_handles()
+        SERVER_STDOUT_HANDLE = SERVER_STDOUT_PATH.open("a", encoding="utf-8")
+        SERVER_STDERR_HANDLE = SERVER_STDERR_PATH.open("a", encoding="utf-8")
         log_runtime(f"server_start cwd={COMFYUI_ROOT} command={' '.join(command)}")
+        log_runtime(f"server_logs stdout={SERVER_STDOUT_PATH} stderr={SERVER_STDERR_PATH}")
         SERVER_PROCESS = subprocess.Popen(
             command,
             cwd=str(COMFYUI_ROOT),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=SERVER_STDOUT_HANDLE,
+            stderr=SERVER_STDERR_HANDLE,
             text=True,
         )
 
@@ -128,7 +187,7 @@ def wait_for_server_ready() -> None:
     started_at = time.monotonic()
     while time.monotonic() - started_at <= COMFYUI_STARTUP_TIMEOUT_SECONDS:
         if SERVER_PROCESS is not None and SERVER_PROCESS.poll() is not None:
-            raise RuntimeError(f"ComfyUI server exited before becoming ready with code {SERVER_PROCESS.poll()}")
+            raise RuntimeError(describe_server_exit(SERVER_PROCESS.poll()))
         if comfyui_server_ready():
             return
         time.sleep(1)

@@ -86,6 +86,7 @@ DEFAULT_SEED = int(os.environ.get("DEFAULT_SEED", "12345"))
 DEFAULT_DECODE_CHUNK_SIZE = int(os.environ.get("DEFAULT_DECODE_CHUNK_SIZE", "12"))
 MIN_CACHE_FREE_GB = float(os.environ.get("MIN_CACHE_FREE_GB", "12"))
 DEFAULT_VIDEO_BACKEND = os.environ.get("VIDEO_BACKEND", os.environ.get("WORKER_BACKEND", "comfyui")).strip().lower() or "comfyui"
+ALLOW_CPU_VIDEO_BACKEND = os.environ.get("ALLOW_CPU_VIDEO_BACKEND", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 PIPELINE_LOCK = threading.Lock()
 JOB_LOCK = threading.Lock()
@@ -128,11 +129,33 @@ def get_runtime_device_info() -> dict[str, Any]:
     cuda_available = torch.cuda.is_available()
     device_count = torch.cuda.device_count() if cuda_available else 0
     device_name = torch.cuda.get_device_name(0) if cuda_available and device_count > 0 else "cpu"
+    torch_cuda_version = getattr(torch.version, "cuda", None) or "none"
     return {
         "cuda_available": cuda_available,
         "device_count": device_count,
         "device_name": device_name,
+        "torch_version": torch.__version__,
+        "torch_cuda_version": torch_cuda_version,
     }
+
+
+def ensure_video_backend_runtime_available(backend: str, device_info: dict[str, Any]) -> None:
+    if backend not in {"comfyui", "wan", "diffusers"}:
+        return
+    if ALLOW_CPU_VIDEO_BACKEND:
+        return
+    if device_info["cuda_available"] and device_info["device_count"] > 0:
+        return
+
+    raise RuntimeError(
+        f"Video backend '{backend}' requires a visible CUDA GPU, but this worker started in CPU mode "
+        f"(cuda_available={device_info['cuda_available']} device_count={device_info['device_count']} "
+        f"device_name={device_info['device_name']} torch_version={device_info['torch_version']} "
+        f"torch_cuda_version={device_info['torch_cuda_version']}). "
+        "This usually means the RunPod worker was launched without GPU access, the endpoint is using a CPU runtime, "
+        "or the container does not have access to the NVIDIA runtime. Check the endpoint worker template and GPU settings. "
+        "If you intentionally want CPU-only debugging, set ALLOW_CPU_VIDEO_BACKEND=true."
+    )
 
 
 def process_runpod_job(event: dict[str, Any]) -> dict[str, Any]:
@@ -141,15 +164,20 @@ def process_runpod_job(event: dict[str, Any]) -> dict[str, Any]:
     job_id = resolve_job_id(event, job_input)
     job_spec = build_job_spec(job_input, job_id)
     device_info = get_runtime_device_info()
+    backend = resolve_video_backend(job_input, job_spec.media_type)
 
     log_runtime(
         "job_start "
         f"job_id={job_id} media_type={job_spec.media_type} prompt_chars={len(job_spec.prompt)} "
         f"frames={job_spec.frames} fps={job_spec.fps} steps={job_spec.steps} "
         f"native={job_spec.native_width}x{job_spec.native_height} output={job_spec.output_width}x{job_spec.output_height} "
-        f"backend={resolve_video_backend(job_input, job_spec.media_type)} "
-        f"cuda_available={device_info['cuda_available']} device_count={device_info['device_count']} device_name={device_info['device_name']}"
+        f"backend={backend} "
+        f"cuda_available={device_info['cuda_available']} device_count={device_info['device_count']} device_name={device_info['device_name']} "
+        f"torch_version={device_info['torch_version']} torch_cuda_version={device_info['torch_cuda_version']}"
     )
+
+    if job_spec.media_type == "video":
+        ensure_video_backend_runtime_available(backend, device_info)
 
     with JOB_LOCK:
         if job_spec.media_type == "image":
@@ -161,7 +189,6 @@ def process_runpod_job(event: dict[str, Any]) -> dict[str, Any]:
             s3_result = upload_artifact_to_s3(job_id, output_path, job_spec.image_format, image_content_type(job_spec.image_format))
         else:
             render_started_at = time.perf_counter()
-            backend = resolve_video_backend(job_input, job_spec.media_type)
             output_path = render_video_for_backend(job_id, job_spec, backend)
             render_elapsed = time.perf_counter() - render_started_at
             log_runtime(f"video_render_complete job_id={job_id} backend={backend} elapsed_seconds={render_elapsed:.2f} output_path={output_path}")

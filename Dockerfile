@@ -4,6 +4,7 @@ FROM python:3.11-slim-bookworm
 ARG COMFYUI_REF=master
 ARG COMFYUI_ANIMATEDIFF_REF=main
 ARG COMFYUI_VHS_REF=main
+ARG PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu124
 ARG PRELOAD_DIFFUSERS_MODELS=false
 ARG PRELOAD_WAN_MODELS=false
 ARG PRELOAD_COMFYUI_MODELS=false
@@ -87,7 +88,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python -m pip install --upgrade pip
 
 COPY requirements.txt /tmp/runpod-worker-requirements.txt
-RUN python -m pip install torch==2.5.1 && \
+RUN python -m pip install --index-url ${PYTORCH_INDEX_URL} torch==2.5.1 && \
     python -m pip install -r /tmp/runpod-worker-requirements.txt && \
     rm /tmp/runpod-worker-requirements.txt
 
