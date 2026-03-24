@@ -44,9 +44,9 @@
   "5": {
     "class_type": "EmptyLatentImage",
     "inputs": {
-      "width": 720,
-      "height": 1280,
-      "batch_size": 49
+      "width": 768,
+      "height": 1344,
+      "batch_size": 61
     }
   },
   "6": {
@@ -64,8 +64,8 @@
     "class_type": "KSampler",
     "inputs": {
       "seed": 123456789,
-      "steps": 16,
-      "cfg": 2.8,
+      "steps": 20,
+      "cfg": 3.0,
       "sampler_name": "lcm",
       "scheduler": "normal",
       "denoise": 1,
@@ -107,13 +107,13 @@
         "8",
         0
       ],
-      "frame_rate": 16,
+      "frame_rate": 12,
       "loop_count": 0,
       "filename_prefix": "runpod/manual_portrait_scene_hq",
       "format": "video/runpod_h264_mp4",
       "pingpong": false,
       "save_output": true,
-      "crf": 20,
+      "crf": 18,
       "preset": "slow",
       "pix_fmt": "yuv420p",
       "save_metadata": false

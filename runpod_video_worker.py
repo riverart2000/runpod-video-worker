@@ -65,18 +65,18 @@ DEFAULT_LORA_WEIGHT_NAME = os.environ.get("DEFAULT_LORA_WEIGHT_NAME", "AnimateLC
 DEFAULT_VAE_ID = os.environ.get("DEFAULT_VAE_ID", "stabilityai/sd-vae-ft-mse")
 DEFAULT_NEGATIVE_PROMPT = os.environ.get(
     "DEFAULT_NEGATIVE_PROMPT",
-    "bright tones, overexposed, static, blurred details, subtitles, text overlays, watermark, paintings, illustrations, still picture, overall gray, worst quality, low quality, jpeg artifacts, ugly, deformed, disfigured, distorted anatomy, fused fingers, poorly drawn hands, poorly drawn faces, messy background, duplicate subjects, extra limbs",
+    "bright tones, overexposed, static framing, blurry details, low resolution, worst quality, low quality, jpeg artifacts, oversmoothed skin, plastic skin, distorted face, deformed eyes, bad anatomy, warped hands, fused fingers, duplicate subjects, extra limbs, ghosting, jitter, flicker, subtitles, text overlays, watermark, logo, paintings, illustrations, still picture",
 )
-DEFAULT_NATIVE_WIDTH = int(os.environ.get("DEFAULT_NATIVE_WIDTH", "720"))
-DEFAULT_NATIVE_HEIGHT = int(os.environ.get("DEFAULT_NATIVE_HEIGHT", "1280"))
+DEFAULT_NATIVE_WIDTH = int(os.environ.get("DEFAULT_NATIVE_WIDTH", "768"))
+DEFAULT_NATIVE_HEIGHT = int(os.environ.get("DEFAULT_NATIVE_HEIGHT", "1344"))
 DEFAULT_OUTPUT_WIDTH = int(os.environ.get("DEFAULT_OUTPUT_WIDTH", "720"))
 DEFAULT_OUTPUT_HEIGHT = int(os.environ.get("DEFAULT_OUTPUT_HEIGHT", "1280"))
-DEFAULT_VIDEO_FRAMES = int(os.environ.get("DEFAULT_VIDEO_FRAMES", "49"))
+DEFAULT_VIDEO_FRAMES = int(os.environ.get("DEFAULT_VIDEO_FRAMES", "61"))
 MAX_VIDEO_FRAMES = int(os.environ.get("MAX_VIDEO_FRAMES", "81"))
-DEFAULT_VIDEO_FPS = int(os.environ.get("DEFAULT_VIDEO_FPS", "16"))
-DEFAULT_VIDEO_STEPS = int(os.environ.get("DEFAULT_STEPS", "30"))
-MAX_VIDEO_STEPS = int(os.environ.get("MAX_STEPS", "40"))
-DEFAULT_VIDEO_GUIDANCE_SCALE = float(os.environ.get("DEFAULT_GUIDANCE_SCALE", "5.0"))
+DEFAULT_VIDEO_FPS = int(os.environ.get("DEFAULT_VIDEO_FPS", "12"))
+DEFAULT_VIDEO_STEPS = int(os.environ.get("DEFAULT_STEPS", "20"))
+MAX_VIDEO_STEPS = int(os.environ.get("MAX_STEPS", "28"))
+DEFAULT_VIDEO_GUIDANCE_SCALE = float(os.environ.get("DEFAULT_GUIDANCE_SCALE", "3.0"))
 DEFAULT_IMAGE_STEPS = int(os.environ.get("DEFAULT_IMAGE_STEPS", "20"))
 MAX_IMAGE_STEPS = int(os.environ.get("MAX_IMAGE_STEPS", "30"))
 DEFAULT_IMAGE_GUIDANCE_SCALE = float(os.environ.get("DEFAULT_IMAGE_GUIDANCE_SCALE", "7.0"))
@@ -85,7 +85,7 @@ DEFAULT_LORA_SCALE = float(os.environ.get("DEFAULT_LORA_SCALE", "0.9"))
 DEFAULT_SEED = int(os.environ.get("DEFAULT_SEED", "12345"))
 DEFAULT_DECODE_CHUNK_SIZE = int(os.environ.get("DEFAULT_DECODE_CHUNK_SIZE", "12"))
 MIN_CACHE_FREE_GB = float(os.environ.get("MIN_CACHE_FREE_GB", "12"))
-DEFAULT_VIDEO_BACKEND = os.environ.get("VIDEO_BACKEND", os.environ.get("WORKER_BACKEND", "wan")).strip().lower() or "wan"
+DEFAULT_VIDEO_BACKEND = os.environ.get("VIDEO_BACKEND", os.environ.get("WORKER_BACKEND", "comfyui")).strip().lower() or "comfyui"
 
 PIPELINE_LOCK = threading.Lock()
 JOB_LOCK = threading.Lock()

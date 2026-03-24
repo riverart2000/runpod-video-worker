@@ -2,18 +2,18 @@
 
 This folder is a standalone queue-based RunPod Serverless worker repository for generating either one raw MP4 or one image per job.
 
-It now supports two video backends:
+It now supports three video backends:
 
-- `wan` - the new default quality-first text-to-video path using `Wan-AI/Wan2.1-T2V-14B-Diffusers`
+- `comfyui` - the default serverless path, using ComfyUI + AnimateLCM + FP16 for lower-overhead video orchestration
+- `wan` - an opt-in larger text-to-video path using `Wan-AI/Wan2.1-T2V-14B-Diffusers`
 - `diffusers` - the original direct Python pipeline path
-- `comfyui` - a ComfyUI + AnimateLCM + FP16 path for lower-overhead video orchestration
 
-The worker is built around a quality-first Wan text-to-video path for larger GPUs, while preserving the older backends for fallback:
+The worker is now built around a high-quality ComfyUI serverless path for 5090-class GPUs, while preserving the larger Wan path as an opt-in backend when storage/runtime constraints allow it:
 
 - cached Wan T2V pipeline for higher-fidelity text-to-video scene generation
 - optional ComfyUI runtime with `ComfyUI-AnimateDiff-Evolved` and `ComfyUI-VideoHelperSuite`
 - one cached direct diffusers video pipeline and one cached image pipeline
-- RTX 5090 oriented default native render resolution and step budget
+- RTX 5090 oriented default native render resolution and step budget for the ComfyUI fallback path
 - raw/native video upload from the worker
 - final video formatting can still be handled locally after download if needed
 
@@ -30,15 +30,15 @@ The worker is built around a quality-first Wan text-to-video path for larger GPU
 - Base model: `emilianJR/epiCRealism`
 - Video motion adapter: `wangfuyun/AnimateLCM`
 - Video LoRA: `AnimateLCM_sd15_t2v_lora.safetensors`
-- Default quality-first video path: `Wan-AI/Wan2.1-T2V-14B-Diffusers`
+- Default serverless video path: `comfyui`
 - Image pipeline: `StableDiffusionPipeline` using the same base model family
 - ComfyUI video path: `CheckpointLoaderSimple` + `LoraLoader` + `ADE_AnimateDiffLoaderGen1` + `KSampler(lcm)` + `VHS_VideoCombine`
-- Default native render size: `720x1280`
+- Default native render size: `768x1344`
 - Default requested final size: `720x1280`
-- Default video frames: `49`
-- Default video fps: `16`
-- Default video steps: `30`
-- Default video guidance scale: `5.0`
+- Default video frames: `61`
+- Default video fps: `12`
+- Default video steps: `20`
+- Default video guidance scale: `3.0`
 - Default image steps: `20`
 - Default image format: `png`
 
@@ -46,7 +46,7 @@ The Docker image is now designed to bake runtime assets in during image build. B
 
 For GitHub-to-RunPod remote builds, the default image path now keeps all model preload flags disabled. This is intentional: large baked model layers can push the remote build over RunPod's 30 minute build limit even if the Python code is correct.
 
-When the `wan` backend is enabled, the worker loads a cached `WanPipeline` directly in Python and renders clips without ComfyUI. When the `comfyui` backend is enabled, ComfyUI is started headlessly inside the worker container and the worker submits a generated AnimateLCM workflow to the local ComfyUI API.
+When the `wan` backend is enabled, the worker loads a cached `WanPipeline` directly in Python and renders clips without ComfyUI. When the `comfyui` backend is enabled, ComfyUI is started headlessly inside the worker container and the worker submits a generated AnimateLCM workflow to the local ComfyUI API. For serverless use, `comfyui` is now the default backend because it fits the storage/runtime constraints better than Wan.
 
 For RunPod deployment, use a persistent volume when possible. The worker now prefers `/runpod-volume/hf-cache` over the baked `/opt/models/hf-cache` path whenever `/runpod-volume` is mounted, unless you explicitly set `MODEL_CACHE_DIR` to something else. It also moves RunPod SDK job-state files and temporary render outputs onto `/runpod-volume` when available, and checks free space in the cache directory before loading models so low-disk failures are clearer.
 
@@ -107,7 +107,7 @@ Image example:
 Notes:
 
 - `type` may be `video` or `image`. It defaults to `video`.
-- `backend` may be `wan`, `diffusers`, or `comfyui` for video jobs. If omitted, `WORKER_BACKEND` / `VIDEO_BACKEND` decides.
+- `backend` may be `comfyui`, `wan`, or `diffusers` for video jobs. If omitted, `WORKER_BACKEND` / `VIDEO_BACKEND` decides.
 - `prompt` is required unless `video_prompt` or `image_prompt` is supplied.
 - `width` and `height` are the native generation size.
 - `output_width` and `output_height` are preserved in the job metadata for downstream local post-processing.
@@ -210,15 +210,15 @@ The worker submits a generated workflow equivalent to:
 
 FP16 is enabled for the ComfyUI server by default through `COMFYUI_FORCE_FP16=true`, which starts ComfyUI with `--force-fp16`.
 
-The baked defaults are now tuned for an RTX 5090 32GB class GPU using the Wan backend:
+The baked defaults are now tuned for an RTX 5090 32GB class GPU using the ComfyUI backend:
 
-- native render size `720x1280`
-- `49` default frames and `81` max frames
-- `16` default fps
-- `30` default steps and `40` max steps
-- `5.0` default CFG / guidance scale
-- `5.0` Wan flow shift for 720P portrait generation
-- ComfyUI remains available as a legacy fallback backend
+- native render size `768x1344`
+- `61` default frames and `81` max frames
+- `12` default fps
+- `20` default steps and `28` max steps
+- `3.0` default CFG / guidance scale
+- `slow` H.264 preset with `CRF=18`
+- Wan remains available as an opt-in backend when local storage characteristics are good enough for that model
 
 ## Build-time asset baking
 
